@@ -75,6 +75,11 @@
   .avatar{width:26px;height:26px;border-radius:50%;background:var(--brand-soft);color:#0f766e;display:inline-grid;place-items:center;font-size:11px;font-weight:700;margin-right:8px}
   .mini{font-size:11.5px;color:var(--muted)}
   .note{border:1px solid #fde68a;background:#fffbeb;color:#92400e;font-size:12.5px;padding:10px 14px;border-radius:10px;margin-bottom:16px}
+  .warnbox{border:2px solid #dc2626;background:#fef2f2;border-radius:12px;padding:14px 16px;margin-bottom:18px;cursor:pointer;animation:warnpulse 1.4s ease-in-out infinite}
+  @keyframes warnpulse{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.35)}50%{box-shadow:0 0 0 6px rgba(220,38,38,0)}}
+  .warnhead{display:flex;align-items:center;gap:8px;color:#991b1b;font-size:14px}
+  .blink{animation:blink 1s step-start infinite}
+  @keyframes blink{50%{opacity:.15}}
   .tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
   .tabs button{border:1px solid var(--line);background:var(--panel);padding:8px 16px;border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;color:var(--muted)}
   .tabs button.active{background:var(--brand);color:#fff;border-color:var(--brand)}
@@ -350,12 +355,20 @@ function parseRSCHDetail(rows){
   const clean=v=>(v==null?'':String(v)).trim();
   const rMK=MK[0],rPR=PR[0],rSM=SM[0],rKET=SM[0]+1;
   const sMK=MK[1]!=null?MK[1]:-1,sPR=PR[1]!=null?PR[1]:-1,sSM=SM[1]!=null?SM[1]:-1;
+  // kolom detail survei (konsumen, tanggal, status prospek, status closing) — dicari dari baris header
+  const hdr=(rows[hi]||[]).map(c=>(c==null?'':String(c)).trim().toLowerCase());
+  const findFrom=(pred,from)=>{for(let j=Math.max(0,from||0);j<hdr.length;j++){if(pred(hdr[j]))return j;}return -1;};
+  const sKON = sMK>=0?findFrom(c=>c==='konsumen',sMK):-1;
+  const sTGL = sMK>=0?findFrom(c=>/^tanggal/.test(c),sMK):-1;
+  const sPROS= findFrom(c=>c.includes('status')&&c.includes('prospek'),0);
+  const sCLOS= findFrom(c=>c.includes('status')&&(c.includes('clos')||c.includes('closs')),0);
   const nameOk=v=>v&&v.toLowerCase()!=='marketing'&&isNaN(v);
   for(let i=hi+1;i<rows.length;i++){
     const r=rows[i];if(!r)continue;
     const mk=clean(r[rMK]);
     if(nameOk(mk))leads.push({marketing:mk,proyek:clean(r[rPR]),sumber:clean(r[rSM]),status:clean(r[rKET])});
-    if(sMK>=0){const smk=clean(r[sMK]);if(nameOk(smk))surveis.push({marketing:smk,proyek:clean(r[sPR]),sumber:clean(r[sSM])});}
+    if(sMK>=0){const smk=clean(r[sMK]);if(nameOk(smk))surveis.push({marketing:smk,proyek:clean(r[sPR]),sumber:clean(r[sSM]),
+      konsumen:sKON>=0?clean(r[sKON]):'',tanggal:sTGL>=0?clean(r[sTGL]):'',prospek:sPROS>=0?clean(r[sPROS]):'',closing:sCLOS>=0?clean(r[sCLOS]):''});}
   }
   return {leads,surveis};
 }
@@ -424,7 +437,7 @@ function renderOverview(data){
   const clU=data.closing.units!=null?data.closing.units:data.closing.count;
   const pr=topN(data.proyekRespon,10);
   const kp=kpi('Total Respon Online',totalR,'leads iklan RSC','up')+kpi('Belum Respon',f.noRespon,(f.respon?Math.round(f.noRespon/f.respon*100):0)+'% dari respon')
-    +kpi('Prospek Intens',f.intens,'panas','up')+kpi('Tertarik Survei',f.tertarik,'siap dijadwal')
+    +kpi('Prospek Intens',f.intens,'')+kpi('Tertarik Survei',f.tertarik,'siap dijadwal')
     +kpi('Survei Lokasi',f.survei,'terlaksana')+kpi('Closing (unit)',clU,(data.closing.count||0)+' transaksi'+(data.closing.latest?' · '+data.closing.latest.proyek:''),'up');
   const funnel={type:'hbar',labels:['Respon Online','Prospek Intens','Tertarik Survei','Survei Lokasi','Closing'],data:[totalR,f.intens,f.tertarik,f.survei,clU],colors:[C.blue,C.teal,C.cyan,C.amber,C.violet]};
   const proyek={type:'hbar',labels:pr.map(x=>x[0]),data:pr.map(x=>x[1]),color:C.teal};
@@ -435,7 +448,22 @@ function renderOverview(data){
   const cl=(data.closing.list||[]);
   const clRows=cl.slice().reverse().slice(0,10).map(c=>`<tr><td>${c.tgl||'—'}</td><td><b>${c.konsumen||'—'}</b></td><td><span class="avatar">${(c.marketing||'?').slice(0,2).toUpperCase()}</span>${c.marketing||'—'}</td><td>${c.proyek||'—'}</td><td class="num"><span class="tag t-green">${c.unit||'—'}</span></td></tr>`).join('');
   const closingBlock=cl.length?`<table class="big"><thead><tr><th>Tanggal</th><th>Konsumen</th><th>Marketing</th><th>Proyek</th><th class="num">Unit</th></tr></thead><tbody>${clRows}</tbody></table>${cl.length>10?`<div class="mini" style="margin-top:8px">+${cl.length-10} closing lagi — buka Admin Marketing untuk semua.</div>`:''}`:`<div class="mini">Belum ada closing tercatat.</div>`;
+  const lpRows=leastPerformer(data);const worst=lpRows[0];
+  const mLbl=(RSC_MONTHS.find(m=>m.key===ACTIVE_MONTH)||{}).label||'';
+  let warnHTML='';
+  if(worst){
+    const bottom=lpRows.slice(0,5);
+    const brows=bottom.map((r,i)=>`<tr${i===0?' style="background:#fef2f2"':''}><td class="num mini">${i+1}</td><td><span class="avatar">${r.n.slice(0,2).toUpperCase()}</span><b>${r.n}</b>${i===0?' <span class="tag t-red" style="font-size:9.5px;padding:1px 6px">terendah</span>':''}</td><td class="num">${r.respon}</td><td class="num">${r.survei}</td><td class="num">${r.closing}</td><td class="num">${Math.round(r.convS*100)}%</td></tr>`).join('');
+    warnHTML=`<div class="warnbox" onclick="toggleWarn()">
+      <div class="warnhead"><span class="blink">🔴</span> <b>Perlu perhatian — marketing paling perlu didorong bulan ${mLbl}: ${worst.n}</b><span class="mini" style="margin-left:auto;white-space:nowrap">klik untuk detail ▾</span></div>
+      <div id="ovWarnDetail" style="display:none;margin-top:12px">
+        <div class="mini" style="margin-bottom:8px">Dinilai dari gabungan: respon (leads), survei lokasi, closing, dan konversi respon→survei. Peringkat 5 terbawah bulan ${mLbl}:</div>
+        <table class="big"><thead><tr><th class="num">#</th><th>Marketing</th><th class="num">Respon</th><th class="num">Survei</th><th class="num">Closing</th><th class="num">Konversi</th></tr></thead><tbody>${brows}</tbody></table>
+        <button class="btn" style="margin-top:10px" onclick="event.stopPropagation();goTab('adminmkt')">↗ Buka Admin Marketing</button>
+      </div></div>`;
+  }
   document.getElementById('overview').innerHTML=
+    warnHTML+
     `<h2 class="sh"><span class="dot"></span>Ringkasan Semua Divisi <span class="mini">(klik kartu untuk buka detail)</span></h2>
      <div id="divisiRingkasan"><div class="mini">Menghitung ringkasan semua divisi…</div></div>
      <h2 class="sh" style="margin-top:26px"><span class="dot"></span>Tren Bulanan RSC <span class="mini">(Juli–Desember)</span></h2>
@@ -481,8 +509,8 @@ function renderOverviewExtras(){
 function renderAdmin(data){
   const f=data.funnel;
   const rm=topN(data.respon,12);
-  const kp=kpi('Total Respon (RSC)',f.respon,'leads iklan')+kpi('Belum Respon',f.noRespon,'perlu follow-up','down')
-    +kpi('Prospek Intens',f.intens,'panas','up')+kpi('Tertarik Survei',f.tertarik,'siap dijadwal')+kpi('Survei Lokasi',f.survei,(data.closing.units!=null?data.closing.units:data.closing.count)+' unit closing');
+  const kp=kpi('Total Respon (RSC)',f.respon,'leads iklan')+kpi('Belum Respon',f.noRespon,'')
+    +kpi('Prospek Intens',f.intens,'')+kpi('Tertarik Survei',f.tertarik,'siap dijadwal')+kpi('Survei Lokasi',f.survei,(data.closing.units!=null?data.closing.units:data.closing.count)+' unit closing');
   const marketing={type:'hbar',labels:rm.map(x=>x[0]),data:rm.map(x=>x[1]),color:C.blue};
   const pr=topN(data.proyekRespon,10);
   const ps=Object.entries(data.proyekSurvei).filter(([k,v])=>v>0).sort((a,b)=>b[1]-a[1]).slice(0,14);
@@ -497,12 +525,26 @@ function renderAdmin(data){
     const crows=list.map((c,i)=>`<tr><td class="num mini">${i+1}</td><td>${c.tgl||'—'}</td><td><b>${c.konsumen||'—'}</b></td><td><span class="avatar">${(c.marketing||'?').slice(0,2).toUpperCase()}</span>${c.marketing||'—'}</td><td>${c.proyek||'—'}</td><td class="num"><span class="tag t-green">${c.unit||'—'}</span></td></tr>`).join('');
     closingCard=`<div class="card"><h3>Data Closing</h3><div class="sub">${data.closing.count} transaksi · <b>${clU} unit</b> terjual · urut dari tanggal terlama</div><div style="max-height:520px;overflow:auto"><table class="big"><thead><tr><th class="num">#</th><th>Tanggal</th><th>Konsumen</th><th>Marketing</th><th>Proyek</th><th class="num">Unit</th></tr></thead><tbody>${crows}</tbody></table></div></div>`;
   }else closingCard=`<div class="card"><div class="mini">Belum ada closing tercatat.</div></div>`;
+  // detail konsumen survei + klasifikasi prospek (LP/MP/HP)
+  const survDetail=(data.surveis||[]).filter(s=>s.konsumen||s.prospek);
+  const pc={LP:0,MP:0,HP:0};survDetail.forEach(s=>{const m=prospekMeta(s.prospek);if(m)pc[m.code]++;});
+  const survRows=survDetail.slice().sort((a,b)=>tglSortKey(b.tanggal)-tglSortKey(a.tanggal)).map(s=>{
+    const m=prospekMeta(s.prospek);const isClose=/clos|deal|ya|sudah/i.test(s.closing||'');
+    return `<tr><td><b>${s.konsumen||'—'}</b></td><td><span class="avatar">${(s.marketing||'?').slice(0,2).toUpperCase()}</span>${s.marketing||'—'}</td><td>${s.proyek||'—'}</td><td>${s.tanggal||'—'}</td><td>${m?`<span class="tag ${m.cls}">${m.code} · ${m.label}</span>`:'<span class="mini">—</span>'}</td><td>${s.closing?`<span class="tag ${isClose?'t-green':'t-gray'}">${s.closing}</span>`:'<span class="mini">—</span>'}</td></tr>`;
+  }).join('');
+  const survKpis=kpi('Konsumen Survei',survDetail.length||f.survei,'terdata')+kpi('Hot Prospek (HP)',pc.HP,'paling panas','up')+kpi('Medium Prospek (MP)',pc.MP,'menengah')+kpi('Low Prospek (LP)',pc.LP,'perlu digarap');
+  const survSection=`
+     <h2 class="sh"><span class="dot"></span>Detail Konsumen Survei & Klasifikasi Prospek</h2>
+     <div class="kpis">${survKpis}</div>
+     <div class="card" style="margin-top:14px"><div class="sub">Klasifikasi dari kolom STATUS PROSPEK RSC — LP (Low), MP (Medium), HP (Hot Prospek). Konsumen yang closing ditandai. Urut terbaru dulu.</div>
+       <div style="max-height:520px;overflow:auto"><table class="big"><thead><tr><th>Konsumen</th><th>Marketing</th><th>Proyek</th><th>Tanggal Survei</th><th>Klasifikasi Prospek</th><th>Status Closing</th></tr></thead><tbody>${survRows||'<tr><td colspan="6" class="mini">Belum ada detail survei terklasifikasi — terisi otomatis begitu kolom STATUS PROSPEK di RSC diisi.</td></tr>'}</tbody></table></div></div>`;
   document.getElementById('adminmkt').innerHTML=
     `<div class="kpis">${kp}</div>
      <h2 class="sh"><span class="dot"></span>Respon per Marketing & Sumber</h2>
      <div class="grid g2">${cardChart('Respon per Marketing','12 teratas',marketing)}<div class="card"><h3>Sumber Prospek</h3><div class="sub">Total ${sTot} prospek terpantau</div><table><thead><tr><th>Sumber</th><th class="num">Prospek</th><th class="num">%</th></tr></thead><tbody>${sRows}</tbody></table></div></div>
      <h2 class="sh"><span class="dot"></span>Respon & Survei per Proyek</h2>
      <div class="grid g2">${cardChart('Respon per Proyek','10 teratas',proyekR)}${cardChart('Survei Lokasi per Proyek',ps.length+' proyek ada survei · total '+f.survei,proyekS)}</div>
+     ${survSection}
      <h2 class="sh"><span class="dot"></span>Data Closing <span class="mini">(${clU} unit)</span></h2>
      ${closingCard}
      <h2 class="sh"><span class="dot"></span>Data PPJB</h2>
@@ -685,8 +727,8 @@ function renderMedia(d,live){
   const katTag=c=>/hard/i.test(c)?'t-amber':/soft/i.test(c)?'t-blue':/edukasi/i.test(c)?'t-green':'t-gray';
   // breakdown KPI per kategori
   const katKpis=katEnt.map(([k,v])=>kpi(k,v,total?Math.round(v/total*100)+'% dari konten':'')).join('')||'<div class="mini">Belum ada kategori.</div>';
-  const kRows=konten.map(k=>`<tr><td><b>${k.proyek}</b></td><td><span class="tag ${katTag(k.kategori)}">${k.kategori||'—'}</span></td><td>${k.talent||'—'}</td><td>${k.durasi||'—'}</td><td><span class="tag ${stTag(k.status)}">${k.status||'—'}</span></td><td>${k.tglProd||'—'}</td><td>${k.tglPub||'—'}</td></tr>`).join('');
-  const sRows=site.map(s=>`<tr><td><b>${s.proyek}</b></td><td>${s.tanggal||'—'}</td><td><span class="tag t-gray">${s.siteplan||'—'}</span></td><td><span class="tag t-gray">${s.pricelist||'—'}</span></td><td>${s.keterangan||''}</td></tr>`).join('')||'<tr><td colspan="5" class="mini">Belum ada data.</td></tr>';
+  const kRows=konten.slice().sort((a,b)=>tglSortKey(b.tglPub||b.tglProd)-tglSortKey(a.tglPub||a.tglProd)).map(k=>`<tr><td><b>${k.proyek}</b></td><td><span class="tag ${katTag(k.kategori)}">${k.kategori||'—'}</span></td><td>${k.talent||'—'}</td><td>${k.durasi||'—'}</td><td><span class="tag ${stTag(k.status)}">${k.status||'—'}</span></td><td>${k.tglProd||'—'}</td><td>${k.tglPub||'—'}</td></tr>`).join('');
+  const sRows=site.slice().sort((a,b)=>tglSortKey(b.tanggal)-tglSortKey(a.tanggal)).map(s=>`<tr><td><b>${s.proyek}</b></td><td>${s.tanggal||'—'}</td><td><span class="tag t-gray">${s.siteplan||'—'}</span></td><td><span class="tag t-gray">${s.pricelist||'—'}</span></td><td>${s.keterangan||''}</td></tr>`).join('')||'<tr><td colspan="5" class="mini">Belum ada data.</td></tr>';
   // report mingguan komprehensif
   const pct=n=>total?Math.round(n/total*100):0;
   const katLine=katEnt.map(([k,v])=>`${k} <b>${v}</b> (${pct(v)}%)`).join(' · ')||'—';
@@ -700,12 +742,12 @@ function renderMedia(d,live){
     </div>`;
   el.innerHTML=note+
    `<div class="kpis">${kp}</div>
-    <h2 class="sh"><span class="dot"></span>Breakdown Konten per Kategori</h2>
+    <h2 class="sh"><span class="dot"></span>Breakdown per Jenis Output <span class="mini">(item yang dikerjakan)</span></h2>
     <div class="kpis">${katKpis}</div>
     <h2 class="sh"><span class="dot"></span>Konten Plan</h2>
-    <div class="grid g3">${cardChart('Status Konten','Progress produksi',statusDonut,true)}${cardChart('Kategori','Klasifikasi gaya konten',katDonut,true)}${cardChart('Penggunaan Talent','Berapa kali dipakai',talBar,true)}</div>
-    <div class="card" style="margin-top:16px"><h3>Daftar Konten</h3><div class="sub">${total} konten</div><div style="max-height:560px;overflow:auto"><table class="big"><thead><tr><th>Proyek</th><th>Kategori</th><th>Talent</th><th>Durasi</th><th>Status</th><th>Tgl Produksi</th><th>Tgl Publikasi</th></tr></thead><tbody>${kRows}</tbody></table></div></div>
-    <h2 class="sh"><span class="dot"></span>Siteplan & Pricelist</h2>
+    <div class="grid g3">${cardChart('Status Konten','Progress produksi',statusDonut,true)}${cardChart('Jenis Output','Klasifikasi item dikerjakan',katDonut,true)}${cardChart('Penggunaan Talent','Berapa kali dipakai',talBar,true)}</div>
+    <div class="card" style="margin-top:16px"><h3>Daftar Konten</h3><div class="sub">${total} konten · urut terbaru → lama</div><div style="max-height:560px;overflow:auto"><table class="big"><thead><tr><th>Proyek</th><th>Jenis Output</th><th>Talent</th><th>Durasi</th><th>Status</th><th>Tgl Produksi</th><th>Tgl Publikasi</th></tr></thead><tbody>${kRows}</tbody></table></div></div>
+    <h2 class="sh"><span class="dot"></span>Siteplan & Pricelist <span class="mini">(urut terbaru → lama)</span></h2>
     <div class="card"><div style="max-height:440px;overflow:auto"><table class="big"><thead><tr><th>Proyek</th><th>Tanggal</th><th>Siteplan</th><th>Pricelist</th><th>Keterangan</th></tr></thead><tbody>${sRows}</tbody></table></div></div>
     <h2 class="sh"><span class="dot"></span>Report Mingguan <span class="mini">(otomatis)</span></h2>
     <div class="card">${rep}</div>`;
@@ -768,6 +810,27 @@ function parsePPJB(rows){
 async function fetchPPJB(){if(!SHEET_PPJB.csv)return null;const rows=await fetchCSV(SHEET_PPJB.csv);return parsePPJB(rows);}
 const MONTHS=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
 function parseTgl(t){const s=(t||'').toLowerCase();let mi=-1;for(let i=0;i<12;i++){if(s.includes(MONTHS[i].toLowerCase().slice(0,3))){mi=i;break;}}const ym=s.match(/\b(20\d{2})\b/);const y=ym?+ym[1]:null;if(mi<0||!y)return {k:Infinity,label:'Tanggal lain',short:'—'};return {k:y*12+mi,label:MONTHS[mi]+' '+y,short:MONTHS[mi].slice(0,3)+" '"+String(y).slice(2)};}
+/* Kunci urut per-hari (buang nama hari mis. "Sabtu, 20 Juni 2026"); -1 kalau tak terbaca */
+function tglSortKey(t){const s=(t||'').toLowerCase();let mi=-1;for(let i=0;i<12;i++){if(s.includes(MONTHS[i].toLowerCase().slice(0,3))){mi=i;break;}}const ym=s.match(/\b(20\d{2})\b/);const dm=s.match(/\b(\d{1,2})\b/);if(mi<0||!ym)return -1;return (+ym[1])*10000+mi*100+(dm?+dm[1]:0);}
+/* Klasifikasi status prospek → LP/MP/HP */
+function prospekMeta(v){const s=(v||'').toUpperCase().replace(/\s+/g,'');if(!s)return null;
+  if(s==='HP'||s.includes('HOT'))return {code:'HP',label:'Hot Prospek',cls:'t-red'};
+  if(s==='MP'||s.includes('MEDIUM'))return {code:'MP',label:'Medium Prospek',cls:'t-amber'};
+  if(s==='LP'||s.includes('LOW'))return {code:'LP',label:'Low Prospek',cls:'t-blue'};
+  return null;}
+/* Analisis marketing paling perlu didorong — skor gabungan respon+survei+closing+konversi (per bulan aktif) */
+function leastPerformer(data){
+  const roster=[];Object.values(TEAMS).forEach(t=>{roster.push(t.leader);t.members.forEach(m=>roster.push(m));});
+  const uniq=[...new Set(roster)];if(!uniq.length)return [];
+  const clCount={};(data.closing.list||[]).forEach(c=>{const m=(c.marketing||'').trim();if(m)clCount[m]=(clCount[m]||0)+(c.units||1);});
+  const rows=uniq.map(n=>{const respon=data.respon[n]||0,survei=data.survei[n]||0,closing=clCount[n]||0;
+    return {n,respon,survei,closing,convS:respon?survei/respon:0,convC:survei?closing/survei:0};});
+  const mx=k=>Math.max(1,...rows.map(r=>r[k]));const mR=mx('respon'),mS=mx('survei'),mC=mx('closing');
+  rows.forEach(r=>{r.score=0.20*(r.respon/mR)+0.30*(r.survei/mS)+0.35*(r.closing/mC)+0.15*Math.min(1,r.convS);});
+  rows.sort((a,b)=>a.score-b.score||a.respon-b.respon||a.n.localeCompare(b.n));
+  return rows;
+}
+function toggleWarn(){const d=document.getElementById('ovWarnDetail');if(d)d.style.display=d.style.display==='none'?'block':'none';}
 let PPJB_STATE=null;
 function renderPPJB(list,live){
   PPJB_STATE={list,live};
@@ -781,12 +844,14 @@ function renderPPJB(list,live){
     if(!byBln[tg.k])byBln[tg.k]={label:tg.label,n:0,k:tg.k};byBln[tg.k].n++;});
   // buckets
   const isRefund=p=>norm(p.keterangan)==='Refund DP';
-  const isTerlaksana=p=>!isRefund(p)&&/terlaksana/i.test(p.status||'');
+  const isAJB=p=>!isRefund(p)&&norm(p.keterangan)==='Sudah AJB';
+  const isTerlaksana=p=>!isRefund(p)&&!isAJB(p)&&/terlaksana/i.test(p.status||'');
   const refund=list.filter(isRefund);
+  const ajb=list.filter(isAJB);
   const terlaksana=list.filter(isTerlaksana);
-  const belum=list.filter(p=>!isRefund(p)&&!isTerlaksana(p));
+  const belum=list.filter(p=>!isRefund(p)&&!isAJB(p)&&!isTerlaksana(p));
   const luasTerlaksana=terlaksana.reduce((a,p)=>a+(p.luas||0),0);
-  const kp=kpi('Total PPJB',total,'semua berkas')+kpi('Terlaksana',terlaksana.length,'sah / proses','up')+kpi('Belum Terlaksana',belum.length,'perlu tindak')+kpi('Refund DP',refund.length,'batal','down')+kpi('Sudah AJB',byK['Sudah AJB']||0,'selesai','up');
+  const kp=kpi('Total PPJB',total,'semua berkas')+kpi('PPJB Terlaksana',terlaksana.length,'belum AJB','up')+kpi('AJB Terlaksana',ajb.length,'sudah AJB','up')+kpi('Belum Terlaksana',belum.length,'perlu tindak')+kpi('Refund DP',refund.length,'batal','down');
   SUM.ppjb={total,ajb:byK['Sudah AJB']||0,luas:Math.round(luas),terlaksana:terlaksana.length};SUM.ppjbList=list;renderDivisiRingkasan();
   // charts — PPJB per bulan pakai hbar (bulan/tahun, tidak numpuk)
   const blnArr=Object.values(byBln).sort((a,b)=>a.k-b.k);const blnBar={type:'hbar',labels:blnArr.map(x=>x.label),data:blnArr.map(x=>x.n),color:C.teal,lw:150};
@@ -804,34 +869,29 @@ function renderPPJB(list,live){
     });
     return `<div style="max-height:520px;overflow:auto"><table class="ppjb big"><thead><tr><th>Tanggal</th><th>Konsumen</th><th>Proyek</th><th>Kavling</th><th class="num">Luas m²</th><th>Marketing</th><th>Status Berkas</th></tr></thead><tbody>${body}</tbody></table></div>`;
   };
-  // PPJB per marketing — breakdown per 6 bulan (semester)
-  const SEMS={},byMktSem={};
-  list.forEach(p=>{if(p._y==null)return;const half=p._mi<6?0:1;const sk=p._y*2+half;SEMS[sk]=(half?'Jul–Des ':'Jan–Jun ')+p._y;const m=p.marketing||'—';(byMktSem[m]=byMktSem[m]||{})[sk]=(byMktSem[m][sk]||0)+1;});
-  const semKeys=Object.keys(SEMS).map(Number).sort((a,b)=>a-b);
-  const mktTot=m=>semKeys.reduce((s,k)=>s+((byMktSem[m]||{})[k]||0),0);
-  const mktList=Object.keys(byMktSem).sort((a,b)=>mktTot(b)-mktTot(a));
-  const semHead=semKeys.map(k=>`<th class="num">${SEMS[k]}</th>`).join('');
-  const semRows=mktList.map(m=>`<tr><td><span class="avatar">${(m||'?').slice(0,2).toUpperCase()}</span><b>${m}</b></td>${semKeys.map(k=>{const v=(byMktSem[m]||{})[k]||0;return `<td class="num">${v||'<span class="mini">·</span>'}</td>`;}).join('')}<td class="num"><b>${mktTot(m)}</b></td></tr>`).join('')||`<tr><td colspan="${semKeys.length+2}" class="mini">Belum ada data.</td></tr>`;
-  const semFooter=semKeys.length?`<tr class="mrow"><td>Total</td>${semKeys.map(k=>`<td class="num">${mktList.reduce((s,m)=>s+((byMktSem[m]||{})[k]||0),0)}</td>`).join('')}<td class="num">${total}</td></tr>`:'';
-  const semTable=`<div style="overflow:auto"><table class="ppjb big"><thead><tr><th>Marketing</th>${semHead}<th class="num">Total</th></tr></thead><tbody>${semRows}${semFooter}</tbody></table></div>`;
+  // rincian status berkas (dari keterangan/dokumen)
+  const berkasOrder=['Sudah AJB','Menunggu AJB','Menunggu Proses','Refund DP','Lainnya'].filter(k=>byK[k]);
+  const berkasRows=berkasOrder.map(k=>`<tr><td><span class="tag ${ketTag(k)}">${k}</span></td><td class="num">${byK[k]}</td><td class="num">${total?Math.round(byK[k]/total*100):0}%</td></tr>`).join('')||'<tr><td colspan="3" class="mini">Belum ada data.</td></tr>';
   const note=live?'':'<div class="mini" style="margin-bottom:10px">ℹ️ Snapshot; versi live menampilkan seluruh PPJB dari sheet.</div>';
   el.innerHTML=note+
    `<div class="kpis" style="margin-bottom:16px">${kp}</div>
-    <div class="grid g2">${cardChart('PPJB per Bulan','Jumlah berkas per bulan',blnBar)}${cardChart('Status Berkas','Progress menuju AJB',ketDonut)}</div>
-    <div class="grid g2" style="margin-top:16px">${cardChart('PPJB per Proyek','10 teratas',proyekBar)}${cardChart('PPJB per Marketing','10 teratas',mktBar)}</div>
-    <h2 class="sh" style="margin-top:20px"><span class="dot"></span>PPJB per Marketing — Breakdown per 6 Bulan <span class="mini">(rentang semester)</span></h2>
-    <div class="card"><div class="sub">Jumlah PPJB tiap marketing dikelompokkan per 6 bulan (Jan–Jun / Jul–Des)</div>${semTable}</div>
-    <h2 class="sh" style="margin-top:20px"><span class="dot" style="background:var(--brand2)"></span>Breakdown PPJB <span class="mini">(Tahun → Bulan → detail)</span></h2>
+    <h2 class="sh"><span class="dot" style="background:var(--brand2)"></span>Breakdown PPJB <span class="mini">(Tahun → Bulan → detail)</span></h2>
     <div class="card"><div class="mini" style="margin-bottom:8px">Pilih tahun lalu bulan untuk lihat detail PPJB:</div>
       <div class="tabs" id="ppjbYears" style="margin-bottom:8px"></div>
       <div class="tabs" id="ppjbMonths" style="margin-bottom:14px"></div>
       <div id="ppjbDetail"></div></div>
-    <h2 class="sh" style="margin-top:20px"><span class="dot" style="background:#16a34a"></span>PPJB Terlaksana <span class="mini">(${terlaksana.length} berkas · ${Math.round(luasTerlaksana).toLocaleString('id-ID')} m²)</span></h2>
+    <h2 class="sh" style="margin-top:20px"><span class="dot" style="background:#16a34a"></span>PPJB Terlaksana <span class="mini">(${terlaksana.length} berkas · belum sampai AJB · ${Math.round(luasTerlaksana).toLocaleString('id-ID')} m²)</span></h2>
     <div class="card">${bucketTable(terlaksana)}</div>
-    <h2 class="sh"><span class="dot" style="background:#d97706"></span>Belum Terlaksana <span class="mini">(${belum.length} berkas)</span></h2>
+    <h2 class="sh" style="margin-top:20px"><span class="dot" style="background:#0d9488"></span>AJB Terlaksana <span class="mini">(${ajb.length} berkas · sudah AJB)</span></h2>
+    <div class="card">${bucketTable(ajb)}</div>
+    <h2 class="sh" style="margin-top:20px"><span class="dot" style="background:#d97706"></span>Belum Terlaksana <span class="mini">(${belum.length} berkas)</span></h2>
     <div class="card">${bucketTable(belum)}</div>
-    <h2 class="sh"><span class="dot" style="background:#dc2626"></span>Refund DP <span class="mini">(${refund.length} berkas)</span></h2>
-    <div class="card">${bucketTable(refund)}</div>`;
+    <h2 class="sh" style="margin-top:20px"><span class="dot" style="background:#dc2626"></span>Refund DP <span class="mini">(${refund.length} berkas)</span></h2>
+    <div class="card">${bucketTable(refund)}</div>
+    <h2 class="sh" style="margin-top:20px"><span class="dot"></span>Distribusi PPJB</h2>
+    <div class="grid g2">${cardChart('PPJB per Bulan','Jumlah berkas per bulan',blnBar)}<div>${cardChart('PPJB per Proyek','10 teratas',proyekBar)}<div style="margin-top:16px">${cardChart('PPJB per Marketing','10 teratas',mktBar)}</div></div></div>
+    <h2 class="sh" style="margin-top:20px"><span class="dot" style="background:#16a34a"></span>Status Berkas <span class="mini">(progress menuju AJB)</span></h2>
+    <div class="grid g2">${cardChart('Status Berkas','Progress menuju AJB',ketDonut)}<div class="card"><h3>Rincian Status Berkas</h3><div class="sub">Progres dokumen tiap PPJB</div><table class="big"><thead><tr><th>Status</th><th class="num">Jumlah</th><th class="num">%</th></tr></thead><tbody>${berkasRows}</tbody></table></div></div>`;
   PPJB_SEL={year:null,month:null};ppjbRenderBranch();
 }
 /* ===== PPJB drill-down: Tahun → Bulan → detail ===== */
