@@ -80,6 +80,17 @@
   .warnhead{display:flex;align-items:center;gap:8px;color:#991b1b;font-size:14px}
   .blink{animation:blink 1s step-start infinite}
   @keyframes blink{50%{opacity:.15}}
+  .wgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  @media(max-width:820px){.wgrid{grid-template-columns:1fr}}
+  .wcard{background:#fff;border:1px solid #fecaca;border-radius:10px;padding:12px 14px}
+  .wcard .wt{font-size:11.5px;font-weight:700;color:#b91c1c;letter-spacing:.02em}
+  .wcard .wn{margin:8px 0 4px;font-size:15px;display:flex;align-items:center}
+  .wcard .wv{font-size:20px;font-weight:800;color:#0f172a}
+  .wcard .wsub{font-size:11.5px;color:#64748b;margin-top:4px;line-height:1.5}
+  .delta{font-size:11px;font-weight:800;white-space:nowrap}
+  .delta.up{color:#16a34a}.delta.down{color:#dc2626}.delta.flat{color:#94a3b8}
+  .cmp{font-size:12.5px;color:#475569;background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:10px 0}
+  .catnote{display:inline-block;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:6px;padding:3px 8px;font-size:12px;line-height:1.4}
   .tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
   .tabs button{border:1px solid var(--line);background:var(--panel);padding:8px 16px;border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;color:var(--muted)}
   .tabs button.active{background:var(--brand);color:#fff;border-color:var(--brand)}
@@ -160,6 +171,7 @@ const RSC_MONTHS=[
   {key:'nov',label:'November 2026',csvA:"https://docs.google.com/spreadsheets/d/e/2PACX-1vTCJnXPIFwSsdce5yiK5JZlsVmS98UBFaEgFXaAta83j1RxfHeWMN6pPCxGcJiF4-nBHXPlN2JBWhHg/pub?gid=895039798&single=true&output=csv",csvB:"https://docs.google.com/spreadsheets/d/e/2PACX-1vTCJnXPIFwSsdce5yiK5JZlsVmS98UBFaEgFXaAta83j1RxfHeWMN6pPCxGcJiF4-nBHXPlN2JBWhHg/pub?gid=794995111&single=true&output=csv"},
   {key:'des',label:'Desember 2026',csvA:"https://docs.google.com/spreadsheets/d/e/2PACX-1vStIE2IykAsFvDkn85XMDlBNKrUd2vi6HwsEOmot6iOy3ll9b8aYlcrcJ181MTOUL33NvgF3cdEQgNt/pub?gid=895039798&single=true&output=csv",csvB:"https://docs.google.com/spreadsheets/d/e/2PACX-1vStIE2IykAsFvDkn85XMDlBNKrUd2vi6HwsEOmot6iOy3ll9b8aYlcrcJ181MTOUL33NvgF3cdEQgNt/pub?gid=794995111&single=true&output=csv"}
 ];
+let HRD_LAST=null;   /* cache data HRD utk re-render saat ganti bulan (kolom catatan per bulan) */
 let MONTH_DATA={};   /* key -> data hasil build */
 let TREND=[];        /* ringkasan per bulan buat grafik tren */
 let ACTIVE_MONTH='jul';
@@ -227,6 +239,17 @@ const SHEET_HRD={
     {office:'Madiun',div:'Back Office', url:HRD_DOC+"?gid=1421588700&single=true&output=csv"}
   ]
 };
+/* Sheet "Catatan" (catatan staff per bulan) di file Data Karyawan.
+   pub = published CSV tab Catatan — ISI kalau tab Catatan udah di-Publish-to-web (paling reliable).
+   gviz = fallback via file id + nama sheet (butuh file di-share "anyone with link can view"). */
+const SHEET_CATATAN={
+  pub:HRD_DOC+"?gid=1056632674&single=true&output=csv",
+  gviz:"https://docs.google.com/spreadsheets/d/1pb-LzEEv7pnsGvRbbfU4pfZ6of1zP9WrmetUi2Xt2Eo/gviz/tq?tqx=out:csv&sheet=Catatan"
+};
+const FALLBACK_CATATAN=[
+  {nama:'Eko',divisi:'Land Hunter',cabang:'Jogja',notes:{jul:'Penurunan kinerja'}},
+  {nama:'Hans',divisi:'Media',cabang:'Jogja',notes:{jul:'Fokus pada claude sehingga konten sedikit menurun'}}
+];
 /* Konstruksi — database kerja Aryo (Drafter) & Algi (Estimator). */
 const SHEET_KONS={
   aryo:"https://docs.google.com/spreadsheets/d/e/2PACX-1vTN6iWM1RKNMYSPWcPwgq98vPaO7Q2kNvhurS2BSP6iA15Wca05njzZFtjUfSyChzQ9QK1fFEBE4M2e/pub?gid=880351095&single=true&output=csv",
@@ -420,15 +443,23 @@ const SUM={};
 function renderDivisiRingkasan(){
   const el=document.getElementById('divisiRingkasan');if(!el)return;
   const R=SUM.respon||{},K=SUM.konstruksi||{},P=SUM.ppjb||{},M=SUM.media||{},L=SUM.lokasi||{},H=SUM.hrd||{};
+  const ck=activeCalKey(),pk=ck-1,pv=rscPrev();
+  const dRespon=deltaBadge(R.total||0,pv?pv.funnel.respon:null);
+  const dClose=deltaBadge(R.closing||0,pv?(pv.closing.units||0):null);
+  const dKons=deltaBadge(K.respon||0,pv?konsRespon(pv):null);
+  const dPPJB=(SUM.ppjbList?deltaBadge(cntMonth(SUM.ppjbList,ck,'tanggal'),cntMonth(SUM.ppjbList,pk,'tanggal')):'');
+  const dMedia=(M.list?deltaBadge(cntMonth(M.list,ck,x=>x.tglPub||x.tglProd),cntMonth(M.list,pk,x=>x.tglPub||x.tglProd)):'');
+  const dLok=(L.list?deltaBadge(cntMonth(L.list,ck,'tanggal'),cntMonth(L.list,pk,'tanggal')):'');
+  const dHRD=(H.recruitList?deltaBadge(cntMonth(H.recruitList,ck,'cvMasuk'),cntMonth(H.recruitList,pk,'cvMasuk')):'');
   const card=(tab,label,val,sub)=>`<div class="kpi link" style="position:relative" onclick="goTab('${tab}')"><span class="go">↗</span><div class="lab">${label}</div><div class="val">${val}</div><div class="chg mini" style="color:var(--muted)">${sub||'&nbsp;'}</div></div>`;
   el.innerHTML='<div class="kpis">'+
-    card('adminmkt','Total Respon Online',R.total!=null?R.total:'—','leads iklan RSC')+
-    card('marketing','Closing (unit)',R.closing!=null?R.closing:'—','penjualan')+
-    card('adminmkt','PPJB Terlaksana',P.total!=null?P.total:'—',(P.ajb!=null?P.ajb+' sudah AJB':''))+
-    card('media','Konten Media',M.total!=null?M.total:'—',(M.publish!=null?M.publish+' terpublikasi':''))+
-    card('landhunter','Calon Lokasi',L.total!=null?L.total:'—',(L.luas?L.luas.toLocaleString('id-ID')+' m²':''))+
-    card('konstruksi','Respon Konstruksi',K.respon!=null?K.respon:'—',(K.staff!=null?K.staff+' staff':''))+
-    card('hrd','Total Staff (HRD)',H.staff!=null?H.staff:'—',(H.jogja!=null?H.jogja+' Jogja · '+H.madiun+' Madiun':''))+
+    card('adminmkt','Total Respon Online',R.total!=null?R.total:'—','leads iklan RSC'+dRespon)+
+    card('marketing','Closing (unit)',R.closing!=null?R.closing:'—','penjualan'+dClose)+
+    card('adminmkt','PPJB Terlaksana',P.total!=null?P.total:'—',(P.ajb!=null?P.ajb+' sudah AJB':'')+dPPJB)+
+    card('media','Konten Media',M.total!=null?M.total:'—',(M.publish!=null?M.publish+' terpublikasi':'')+dMedia)+
+    card('landhunter','Calon Lokasi',L.total!=null?L.total:'—',(L.luas?L.luas.toLocaleString('id-ID')+' m²':'')+dLok)+
+    card('konstruksi','Respon Konstruksi',K.respon!=null?K.respon:'—',(K.staff!=null?K.staff+' staff':'')+dKons)+
+    card('hrd','Total Staff (HRD)',H.staff!=null?H.staff:'—',(H.jogja!=null?H.jogja+' Jogja · '+H.madiun+' Madiun':'')+dHRD)+
   '</div>';
 }
 
@@ -436,9 +467,10 @@ function renderOverview(data){
   const t=teamAgg(data);const f=data.funnel;const totalR=f.respon;
   const clU=data.closing.units!=null?data.closing.units:data.closing.count;
   const pr=topN(data.proyekRespon,10);
-  const kp=kpi('Total Respon Online',totalR,'leads iklan RSC','up')+kpi('Belum Respon',f.noRespon,(f.respon?Math.round(f.noRespon/f.respon*100):0)+'% dari respon')
+  const prev=rscPrev();
+  const kp=kpi('Total Respon Online',totalR,'leads iklan RSC'+deltaBadge(totalR,prev?prev.funnel.respon:null))+kpi('Belum Respon',f.noRespon,(f.respon?Math.round(f.noRespon/f.respon*100):0)+'% dari respon')
     +kpi('Prospek Intens',f.intens,'')+kpi('Tertarik Survei',f.tertarik,'siap dijadwal')
-    +kpi('Survei Lokasi',f.survei,'terlaksana')+kpi('Closing (unit)',clU,(data.closing.count||0)+' transaksi'+(data.closing.latest?' · '+data.closing.latest.proyek:''),'up');
+    +kpi('Survei Lokasi',f.survei,'terlaksana'+deltaBadge(f.survei,prev?prev.funnel.survei:null))+kpi('Closing (unit)',clU,(data.closing.count||0)+' transaksi'+deltaBadge(clU,prev?(prev.closing.units||0):null));
   const funnel={type:'hbar',labels:['Respon Online','Prospek Intens','Tertarik Survei','Survei Lokasi','Closing'],data:[totalR,f.intens,f.tertarik,f.survei,clU],colors:[C.blue,C.teal,C.cyan,C.amber,C.violet]};
   const proyek={type:'hbar',labels:pr.map(x=>x[0]),data:pr.map(x=>x[1]),color:C.teal};
   const sEnt=Object.entries(data.sumber).sort((a,b)=>b[1]-a[1]);
@@ -448,20 +480,9 @@ function renderOverview(data){
   const cl=(data.closing.list||[]);
   const clRows=cl.slice().reverse().slice(0,10).map(c=>`<tr><td>${c.tgl||'—'}</td><td><b>${c.konsumen||'—'}</b></td><td><span class="avatar">${(c.marketing||'?').slice(0,2).toUpperCase()}</span>${c.marketing||'—'}</td><td>${c.proyek||'—'}</td><td class="num"><span class="tag t-green">${c.unit||'—'}</span></td></tr>`).join('');
   const closingBlock=cl.length?`<table class="big"><thead><tr><th>Tanggal</th><th>Konsumen</th><th>Marketing</th><th>Proyek</th><th class="num">Unit</th></tr></thead><tbody>${clRows}</tbody></table>${cl.length>10?`<div class="mini" style="margin-top:8px">+${cl.length-10} closing lagi — buka Admin Marketing untuk semua.</div>`:''}`:`<div class="mini">Belum ada closing tercatat.</div>`;
-  const lpRows=leastPerformer(data);const worst=lpRows[0];
+  const roster=[];Object.values(TEAMS).forEach(t=>{roster.push(t.leader);t.members.forEach(m=>roster.push(m));});
   const mLbl=(RSC_MONTHS.find(m=>m.key===ACTIVE_MONTH)||{}).label||'';
-  let warnHTML='';
-  if(worst){
-    const bottom=lpRows.slice(0,5);
-    const brows=bottom.map((r,i)=>`<tr${i===0?' style="background:#fef2f2"':''}><td class="num mini">${i+1}</td><td><span class="avatar">${r.n.slice(0,2).toUpperCase()}</span><b>${r.n}</b>${i===0?' <span class="tag t-red" style="font-size:9.5px;padding:1px 6px">terendah</span>':''}</td><td class="num">${r.respon}</td><td class="num">${r.survei}</td><td class="num">${r.closing}</td><td class="num">${Math.round(r.convS*100)}%</td></tr>`).join('');
-    warnHTML=`<div class="warnbox" onclick="toggleWarn()">
-      <div class="warnhead"><span class="blink">🔴</span> <b>Perlu perhatian — marketing paling perlu didorong bulan ${mLbl}: ${worst.n}</b><span class="mini" style="margin-left:auto;white-space:nowrap">klik untuk detail ▾</span></div>
-      <div id="ovWarnDetail" style="display:none;margin-top:12px">
-        <div class="mini" style="margin-bottom:8px">Dinilai dari gabungan: respon (leads), survei lokasi, closing, dan konversi respon→survei. Peringkat 5 terbawah bulan ${mLbl}:</div>
-        <table class="big"><thead><tr><th class="num">#</th><th>Marketing</th><th class="num">Respon</th><th class="num">Survei</th><th class="num">Closing</th><th class="num">Konversi</th></tr></thead><tbody>${brows}</tbody></table>
-        <button class="btn" style="margin-top:10px" onclick="event.stopPropagation();goTab('adminmkt')">↗ Buka Admin Marketing</button>
-      </div></div>`;
-  }
+  const warnHTML=noteBox(data,roster,'marketing terlemah bulan '+mLbl);
   document.getElementById('overview').innerHTML=
     warnHTML+
     `<h2 class="sh"><span class="dot"></span>Ringkasan Semua Divisi <span class="mini">(klik kartu untuk buka detail)</span></h2>
@@ -509,8 +530,9 @@ function renderOverviewExtras(){
 function renderAdmin(data){
   const f=data.funnel;
   const rm=topN(data.respon,12);
-  const kp=kpi('Total Respon (RSC)',f.respon,'leads iklan')+kpi('Belum Respon',f.noRespon,'')
-    +kpi('Prospek Intens',f.intens,'')+kpi('Tertarik Survei',f.tertarik,'siap dijadwal')+kpi('Survei Lokasi',f.survei,(data.closing.units!=null?data.closing.units:data.closing.count)+' unit closing');
+  const prevA=rscPrev();
+  const kp=kpi('Total Respon (RSC)',f.respon,'leads iklan'+deltaBadge(f.respon,prevA?prevA.funnel.respon:null))+kpi('Belum Respon',f.noRespon,'')
+    +kpi('Prospek Intens',f.intens,'')+kpi('Tertarik Survei',f.tertarik,'siap dijadwal')+kpi('Survei Lokasi',f.survei,(data.closing.units!=null?data.closing.units:data.closing.count)+' unit closing'+deltaBadge(f.survei,prevA?prevA.funnel.survei:null));
   const marketing={type:'hbar',labels:rm.map(x=>x[0]),data:rm.map(x=>x[1]),color:C.blue};
   const pr=topN(data.proyekRespon,10);
   const ps=Object.entries(data.proyekSurvei).filter(([k,v])=>v>0).sort((a,b)=>b[1]-a[1]).slice(0,14);
@@ -582,6 +604,7 @@ function renderMarketing(data){
     const surveiCard=gArr.length?`<div class="card"><h3>Detail Survei per Proyek</h3><div class="sub">${sv.length} kunjungan survei · yang >1× ke proyek sama ditandai</div><div style="max-height:420px;overflow:auto"><table class="big"><thead><tr><th>Marketing</th><th>Proyek</th><th class="num">Jumlah</th></tr></thead><tbody>${svRows}</tbody></table></div></div>`
       :`<div class="card"><h3>Detail Survei per Proyek</h3><div class="mini">Belum ada detail survei terbaca untuk team ini.</div></div>`;
     panels+=`<div class="team" data-team="${t}" style="display:none">
+      ${noteBox(data,memb,'terlemah Team '+t)}
       <div class="kpis">${kpi('Anggota Aktif',memb.length,(resigned.length?'+'+resigned.length+' resign · ':'')+'Leader: '+cfg.leader)}${kpi('Total Respon',a.respon,'termasuk leader')}${kpi('Survei Lokasi',a.survei,'terlaksana')}${kpi('Konversi Respon→Survei',conv+'%','respon jadi survei','up')}</div>
       <h2 class="sh"><span class="dot"></span>Report & Konversi Staff</h2>
       <div class="grid g2"><div class="card"><h3>Report Staff — Team ${t}</h3><div class="sub">respon · survei · konversi</div><table class="big"><thead><tr><th>Staff</th><th class="num">Respon</th><th class="num">Survei</th><th class="num">Konversi</th></tr></thead><tbody>${rrows}</tbody></table></div>${cardChart('Konversi Respon→Survei','% respon jadi survei per anggota',convBar,true)}</div>
@@ -605,8 +628,14 @@ function renderMarketing(data){
   const topMk=topN(data.respon,12);const topBar={type:'hbar',labels:topMk.map(x=>x[0]),data:topMk.map(x=>x[1]),color:C.blue};
   const teamRows=teamsK.map(t=>{const a=agg[t];const cv=a.respon?Math.round(a.survei/a.respon*100):0;const mb=TEAMS[t].members.length+1;
     return `<tr><td><b>Team ${t}</b><div class="mini">Leader: ${TEAMS[t].leader}</div></td><td class="num">${mb}</td><td class="num">${a.respon}</td><td class="num">${a.survei}</td><td class="num"><b>${cv}%</b></td><td><button class="btn" style="padding:5px 10px;font-size:11.5px" onclick="goTab('marketing','${t}')">Detail ↗</button></td></tr>`;}).join('');
+  const prevM=rscPrev();const prevAgg=prevM?teamAgg(prevM):null;
+  const prevResp=prevAgg?Object.values(prevAgg).reduce((s,x)=>s+x.respon,0):null;
+  const prevSurv=prevAgg?Object.values(prevAgg).reduce((s,x)=>s+x.survei,0):null;
+  const divRoster=[];Object.values(TEAMS).forEach(t=>{divRoster.push(t.leader);t.members.forEach(m=>divRoster.push(m));});
+  const divNote=noteBox(data,divRoster,'marketing terlemah divisi bulan '+((RSC_MONTHS.find(m=>m.key===ACTIVE_MONTH)||{}).label||''));
   const ringkasanPanel=`<div class="team" data-team="all" style="display:block">
-    <div class="kpis">${kpi('Total Respon Marketing',totResp,teamsK.length+' team')+kpi('Total Survei',totSurv,'lokasi')+kpi('Konversi Respon→Survei',convAll+'%','respon jadi survei','up')+kpi('Closing (unit)',clU,'penjualan','up')+kpi('Jumlah Marketing',nMk,'orang')}</div>
+    ${divNote}
+    <div class="kpis">${kpi('Total Respon Marketing',totResp,(teamsK.length+' team')+deltaBadge(totResp,prevResp))+kpi('Total Survei',totSurv,'lokasi'+deltaBadge(totSurv,prevSurv))+kpi('Konversi Respon→Survei',convAll+'%','respon jadi survei')+kpi('Closing (unit)',clU,'penjualan'+deltaBadge(clU,prevM?(prevM.closing.units||0):null))+kpi('Jumlah Marketing',nMk,'orang')}</div>
     <h2 class="sh"><span class="dot"></span>Perbandingan Team</h2>
     <div class="grid g2">${cardChart('Respon per Team','distribusi respon',teamDonut,true,)}${cardChart('Konversi per Team','% respon jadi survei',convTeam,true)}</div>
     <h2 class="sh"><span class="dot"></span>Sumber Lead & Top Marketing</h2>
@@ -657,7 +686,7 @@ function renderLandHunter(rows,live){
   const note=live?'':'<div class="note">ℹ️ Land Hunter menampilkan <b>snapshot</b> (sheet belum kebaca live saat dibuka dari sini). Setelah deploy & tab ter-publish, otomatis LIVE.</div>';
   if(!rows||!rows.length){el.innerHTML=note+'<div class="note">Belum ada calon lokasi terbaca.</div>';return;}
   const byKatAll={};rows.forEach(r=>byKatAll[r.status]=(byKatAll[r.status]||0)+1);
-  SUM.lokasi={total:rows.length,luas:rows.reduce((a,r)=>a+(r.luas||0),0),est:rows.reduce((a,r)=>a+(r.hargaNum||0)*(r.luas||0),0),byKat:byKatAll};renderDivisiRingkasan();
+  SUM.lokasi={total:rows.length,luas:rows.reduce((a,r)=>a+(r.luas||0),0),est:rows.reduce((a,r)=>a+(r.hargaNum||0)*(r.luas||0),0),byKat:byKatAll,list:rows};renderDivisiRingkasan();
   const viewHTML=(rws,withHunter)=>{
     if(!rws.length)return '<div class="note">Belum ada calon lokasi untuk staff ini.</div>';
     const total=rws.length,totLuas=rws.reduce((a,r)=>a+(r.luas||0),0);
@@ -686,7 +715,8 @@ function renderLandHunter(rows,live){
   const tabs=`<div class="tabs"><button data-view="all" class="active">Ringkasan</button>`+LH_STAFF.map(h=>`<button data-view="${h}">${h}</button>`).join('')+`</div>`;
   let views=`<div class="lhview" data-view="all">${viewHTML(rows,true)}</div>`;
   LH_STAFF.forEach(h=>{views+=`<div class="lhview" data-view="${h}" style="display:none">${viewHTML(rows.filter(r=>r.hunter===h),false)}</div>`;});
-  el.innerHTML=note+tabs+views;
+  const lhCmp=cmpLine('calon lokasi masuk',cntMonth(rows,activeCalKey(),'tanggal'),cntMonth(rows,activeCalKey()-1,'tanggal'));
+  el.innerHTML=note+lhCmp+tabs+views;
   const sel=v=>{el.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.view===v));el.querySelectorAll('.lhview').forEach(p=>p.style.display=p.dataset.view===v?'block':'none');};
   el.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>sel(b.dataset.view));
   SUBTAB.landhunter=sel;
@@ -719,7 +749,8 @@ function renderMedia(d,live){
   const kat={},tal={};
   konten.forEach(k=>{const c=k.kategori||'—';kat[c]=(kat[c]||0)+1;(k.talent||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(t=>tal[t]=(tal[t]||0)+1);});
   const kp=kpi('Total Konten',total,'semua entri')+kpi('Terpublikasi',st.Terpublikasi,'tayang','up')+kpi('Terjadwal',st.Terjadwal,'antre')+kpi('Terlaksana',st.Terlaksana,'produksi')+kpi('Dibatalkan',st.Dibatalkan,'cancel','down');
-  SUM.media={total,publish:st.Terpublikasi,byKat:kat};renderDivisiRingkasan();
+  const mCur=cntMonth(konten,activeCalKey(),x=>x.tglPub||x.tglProd),mPrev=cntMonth(konten,activeCalKey()-1,x=>x.tglPub||x.tglProd);const mediaCmp=cmpLine('konten dikerjakan',mCur,mPrev);
+  SUM.media={total,publish:st.Terpublikasi,byKat:kat,list:konten};renderDivisiRingkasan();
   const statusDonut={type:'donut',labels:['Terpublikasi','Terjadwal','Terlaksana','Dibatalkan'],data:[st.Terpublikasi,st.Terjadwal,st.Terlaksana,st.Dibatalkan],colors:['#16a34a',C.amber,C.cyan,C.red]};
   const katEnt=Object.entries(kat).sort((a,b)=>b[1]-a[1]);const katDonut={type:'donut',labels:katEnt.map(x=>x[0]),data:katEnt.map(x=>x[1]),colors:[C.amber,C.blue,C.teal,C.violet,C.pink,C.slate]};
   const talEnt=Object.entries(tal).sort((a,b)=>b[1]-a[1]);const talBar={type:'bars',labels:talEnt.map(x=>x[0]),data:talEnt.map(x=>x[1]),color:C.violet};
@@ -742,6 +773,7 @@ function renderMedia(d,live){
     </div>`;
   el.innerHTML=note+
    `<div class="kpis">${kp}</div>
+    ${mediaCmp}
     <h2 class="sh"><span class="dot"></span>Breakdown per Jenis Output <span class="mini">(item yang dikerjakan)</span></h2>
     <div class="kpis">${katKpis}</div>
     <h2 class="sh"><span class="dot"></span>Konten Plan</h2>
@@ -770,7 +802,8 @@ function renderKonstruksi(data){
   const arr=konsStaffData(data);
   const totR=arr.reduce((a,s)=>a+s.respon,0),totS=arr.reduce((a,s)=>a+s.survei,0);
   SUM.konstruksi={respon:totR,survei:totS,staff:arr.length,staffArr:arr.map(s=>({name:s.name,respon:s.respon}))};renderDivisiRingkasan();
-  const kp=kpi('Total Respon',totR,live?'live dari RSCH':'menunggu live','up')+kpi('Total Survei',totS,'lokasi')+kpi('Staff',arr.length,'estimator·drafter·arsitek')+kpi('Closing',0,'belum ada');
+  const prevK=rscPrev();
+  const kp=kpi('Total Respon',totR,(live?'live dari RSCH':'menunggu live')+deltaBadge(totR,prevK?konsRespon(prevK):null))+kpi('Total Survei',totS,'lokasi'+deltaBadge(totS,prevK?konsSurvei(prevK):null))+kpi('Staff',arr.length,'estimator·drafter·arsitek')+kpi('Closing',0,'belum ada');
   const bar={type:'bars',labels:arr.map(s=>s.name),data:arr.map(s=>s.respon),color:C.amber};
   const jobTag=j=>j==='Estimator'?'t-blue':j==='Drafter'?'t-amber':'t-green';
   const rows=arr.map(s=>`<tr><td><span class="avatar">${s.name.slice(0,2).toUpperCase()}</span><b>${s.name}</b></td><td><span class="tag ${jobTag(s.job)}">${s.job}</span></td><td class="num">${s.respon}</td><td class="num">${s.survei}</td><td><button class="btn" style="padding:5px 10px;font-size:11.5px" onclick="goTab('konstruksi','${s.name}')">Detail ↗</button></td></tr>`).join('');
@@ -831,6 +864,41 @@ function leastPerformer(data){
   return rows;
 }
 function toggleWarn(){const d=document.getElementById('ovWarnDetail');if(d)d.style.display=d.style.display==='none'?'block':'none';}
+/* ===== Perbandingan bulan ini vs bulan lalu ===== */
+function activeCalKey(){const m=RSC_MONTHS.find(x=>x.key===ACTIVE_MONTH);return m?parseTgl(m.label).k:Infinity;}
+function mdByCal(ck){if(ck===Infinity)return null;const m=RSC_MONTHS.find(x=>parseTgl(x.label).k===ck);return m?MONTH_DATA[m.key]:null;}
+function rscPrev(){return mdByCal(activeCalKey()-1);}
+function cntMonth(list,ck,f){if(!list||ck===Infinity)return 0;return list.filter(x=>parseTgl((typeof f==='function'?f(x):x[f])||'').k===ck).length;}
+function konsRespon(d){return d&&d.konstruksi?d.konstruksi.reduce((a,s)=>a+(s.respon||0),0):0;}
+function konsSurvei(d){return d&&d.konstruksi?d.konstruksi.reduce((a,s)=>a+(s.survei||0),0):0;}
+function deltaBadge(cur,prev){
+  if(prev==null||ACTIVE_MONTH==='kumulatif')return '';
+  if(prev===0)return cur>0?' <span class="delta up">▲ baru</span>':'';
+  const d=Math.round((cur-prev)/prev*100);
+  if(d>0)return ' <span class="delta up">▲ '+d+'%</span>';
+  if(d<0)return ' <span class="delta down">▼ '+Math.abs(d)+'%</span>';
+  return ' <span class="delta flat">– 0%</span>';
+}
+/* Baris caption perbandingan bulan (buat divisi non-RSC: media/land hunter/hrd) */
+function cmpLine(label,cur,prev){if(ACTIVE_MONTH==='kumulatif')return '';return `<div class="cmp">📊 Bulan ini: <b>${cur}</b> ${label}${deltaBadge(cur,prev)} <span class="mini">vs bln lalu (${prev})</span></div>`;}
+/* ===== Note marketing terlemah — 3 kolom (leads / survei / closing terendah) ===== */
+function noteCards(data,roster){
+  roster=[...new Set(roster)];if(!roster.length)return '';
+  const clCount={};(data.closing.list||[]).forEach(c=>{const m=(c.marketing||'').trim();if(m)clCount[m]=(clCount[m]||0)+(c.units||1);});
+  const rows=roster.map(n=>({n,respon:data.respon[n]||0,survei:data.survei[n]||0,closing:clCount[n]||0}));
+  const minBy=k=>rows.slice().sort((a,b)=>a[k]-b[k]||a.n.localeCompare(b.n))[0];
+  const wL=minBy('respon'),wS=minBy('survei'),wC=minBy('closing');
+  const cRS=r=>r.respon?Math.round(r.survei/r.respon*100):0;
+  const cSC=r=>r.survei?Math.round(r.closing/r.survei*100):0;
+  const c=(title,r,val,unit,sub)=>`<div class="wcard"><div class="wt">📉 ${title}</div><div class="wn"><span class="avatar">${r.n.slice(0,2).toUpperCase()}</span><b>${r.n}</b></div><div class="wv">${val} <span class="mini">${unit}</span></div><div class="wsub">${sub}</div></div>`;
+  return `<div class="wgrid">
+    ${c('Leads Terendah',wL,wL.respon,'leads','Konversi→survei '+cRS(wL)+'% · survei '+wL.survei+' · closing '+wL.closing)}
+    ${c('Survei Terendah',wS,wS.survei,'survei','Konversi respon→survei '+cRS(wS)+'% · leads '+wS.respon+' · closing '+wS.closing)}
+    ${c('Closing Terendah',wC,wC.closing,'closing','Konversi survei→closing '+cSC(wC)+'% · leads '+wC.respon+' · survei '+wC.survei)}
+  </div>`;
+}
+function noteBox(data,roster,label){const cards=noteCards(data,roster);if(!cards)return '';
+  return `<div class="warnbox"><div class="warnhead"><span class="blink">🔴</span> <b>Perlu perhatian — ${label}</b><span class="mini" style="margin-left:6px">3 dimensi terendah · dikaitkan konversi</span></div><div style="margin-top:12px">${cards}</div></div>`;}
 let PPJB_STATE=null;
 function renderPPJB(list,live){
   PPJB_STATE={list,live};
@@ -995,11 +1063,56 @@ function parseHRDRecruit(rows){
 function classifyHRD(rows){const flat=rows.slice(0,8).map(r=>(r||[]).join('|')).join('\n').toLowerCase();
   if(/posisi yang di ?lamar|hasil interview|rangkuman bulan|recruitment/.test(flat))return 'recruit';
   if(/nama panggilan|jenis kelamin|pendidikan terakhir/.test(flat))return 'staff';return 'other';}
+/* Parse sheet Catatan: NAMA | DIVISI | CABANG | JULI..DESEMBER (catatan per bulan) */
+function parseCatatan(rows){
+  if(!rows||!rows.length)return [];
+  const low=r=>(r||[]).map(c=>(c==null?'':String(c)).trim().toLowerCase());
+  let hi=-1;for(let i=0;i<Math.min(rows.length,25);i++){const l=low(rows[i]);if(l.includes('juli')&&l.some(x=>x.includes('desember'))){hi=i;break;}}
+  if(hi<0)return [];
+  const hdr=low(rows[hi]),hdrUp=low(rows[hi-1]||[]);
+  const findCol=names=>{for(const src of [hdr,hdrUp]){for(let j=0;j<src.length;j++){if(names.some(n=>src[j]===n))return j;}}return -1;};
+  const cNama=findCol(['nama']),cDiv=findCol(['divisi']),cCab=findCol(['cabang','penempatan']);
+  const monMap=[['juli','jul','Juli'],['agustus','agu','Agustus'],['september','sep','September'],['oktober','okt','Oktober'],['november','nov','November'],['desember','des','Desember']];
+  const monCols=monMap.map(([kw,key,label])=>({key,label,idx:hdr.findIndex(x=>x.includes(kw))}));
+  const out=[];
+  for(let i=hi+1;i<rows.length;i++){const r=rows[i];if(!r)continue;const nm=(r[cNama>=0?cNama:0]||'').toString().trim();if(!nm||/^nama$/i.test(nm))continue;
+    const notes={};monCols.forEach(m=>{if(m.idx>=0){const t=(r[m.idx]||'').toString().trim();if(t)notes[m.key]=t;}});
+    out.push({nama:nm,divisi:(cDiv>=0?(r[cDiv]||''):'').toString().trim(),cabang:(cCab>=0?(r[cCab]||''):'').toString().trim(),notes});}
+  return out;
+}
+async function fetchCatatan(){
+  const tries=[SHEET_CATATAN.pub,SHEET_CATATAN.gviz].filter(Boolean);
+  for(const u of tries){try{const rows=await fetchCSV(u);const c=parseCatatan(rows);if(c.length)return c;}catch(e){}}
+  return null;
+}
+/* Cocokkan staff ke baris catatan (via token nama + cabang), ambil catatan bulan aktif */
+const CAT_MON_ORDER=['jul','agu','sep','okt','nov','des'];
+function normTokens(s){return (s||'').toLowerCase().split(/[^a-z0-9]+/).filter(t=>t.length>=3);}
+function catFor(staff,monthKey,catatan){
+  if(!catatan||!catatan.length)return '';
+  const office=(typeof staffOffice==='function')?staffOffice(staff):'';
+  const stTok=normTokens(staff.nama||staff.full||'');
+  let best=null;
+  for(const c of catatan){
+    const cTok=normTokens(c.nama);
+    if(!cTok.some(t=>stTok.includes(t)))continue;
+    const cOffice=/madiun/i.test(c.cabang||'')?'Madiun':/jogja/i.test(c.cabang||'')?'Jogja':'';
+    if(cOffice&&office&&cOffice!==office){if(!best)continue;else continue;}
+    if(cOffice&&office&&cOffice===office){best=c;break;}
+    if(!best)best=c;
+  }
+  if(!best)return '';
+  const n=best.notes||{};
+  if(monthKey&&monthKey!=='kumulatif')return (n[monthKey]||'').trim();
+  for(let i=CAT_MON_ORDER.length-1;i>=0;i--){if((n[CAT_MON_ORDER[i]]||'').trim())return n[CAT_MON_ORDER[i]].trim();}
+  return '';
+}
 async function fetchHRD(){
   const res={staff:[],recruit:[],monthly:[]};
   await Promise.all((SHEET_HRD.staffTabs||[]).map(async t=>{if(!t.url)return;let rows;try{rows=await fetchCSV(t.url);}catch(e){return;}
     const st=parseHRDStaff(rows);st.forEach(s=>{s.office=t.office;s.div=t.div;});res.staff=res.staff.concat(st);}));
   if(SHEET_HRD.interview){try{const rows=await fetchCSV(SHEET_HRD.interview);const rc=parseHRDRecruit(rows);res.recruit=rc.candidates;res.monthly=rc.monthly;}catch(e){}}
+  try{const c=await fetchCatatan();if(c&&c.length)res.catatan=c;}catch(e){}
   return res;}
 /* Roster staff GSR (dari sheet Data Karyawan: kolom Jabatan & Penempatan). Marketing = Marketing/Team Leader; sisanya Back Office. */
 const HRD_ROSTER=[
@@ -1055,7 +1168,7 @@ function renderHRD(d,live){
   const staffJ=staff.filter(s=>staffOffice(s)==='Jogja'),staffM=staff.filter(s=>staffOffice(s)==='Madiun');
   const nJ=staffJ.filter(active).length,nM=staffM.filter(active).length,nS=staff.filter(active).length;
   const resJ=staffJ.length-nJ,resM=staffM.length-nM;
-  SUM.hrd={jogja:nJ,madiun:nM,staff:nS,interview:recruit.length};renderDivisiRingkasan();
+  SUM.hrd={jogja:nJ,madiun:nM,staff:nS,interview:recruit.length,recruitList:recruit};renderDivisiRingkasan();
   // klasifikasi BO vs Marketing (dari kolom Jabatan; hanya staff aktif)
   const isMk=s=>staffDiv(s)==='Marketing';
   const nMk=staff.filter(s=>active(s)&&isMk(s)).length,nBO=nS-nMk;
@@ -1069,24 +1182,29 @@ function renderHRD(d,live){
     if(joined)lolos++;else if(s==='Tidak Lolos'||s==='Mundur'||s==='Tidak Hadir')ditolak++;else proses++;});
   const cvMasuk=recruit.length,interview=cvMasuk-tidakHadir;
   const hasilDonut={type:'donut',labels:['Lolos (Diterima)','Ditolak / Gagal','Masih Proses'].filter((_,i)=>[lolos,ditolak,proses][i]>0),data:[lolos,ditolak,proses].filter(v=>v>0),colors:['#16a34a',C.red,C.slate]};
-  // tabel staff: dikelompokkan per Marketing / Back Office; kolom Nama, Tgl Masuk, Lama Bekerja
+  // catatan staff (per bulan aktif) — dijadikan kolom di tabel Data Staff
+  const catatan=(d.catatan&&d.catatan.length)?d.catatan:FALLBACK_CATATAN;
+  const catColLabel=ACTIVE_MONTH==='kumulatif'?'Catatan (terbaru)':('Catatan '+((RSC_MONTHS.find(m=>m.key===ACTIVE_MONTH)||{}).label||'').split(' ')[0]);
+  // tabel staff: dikelompokkan per Marketing / Back Office; kolom Nama, Tgl Masuk, Lama Bekerja, Catatan (bln aktif)
   const staffTable=arr=>{
     if(!arr.length)return '<div class="mini" style="padding:6px 2px">Belum ada data staff.</div>';
-    const rows=arr.map(s=>{const d=parseTglMasuk(s.masuk);return {nama:s.nama,jab:jabatanText(s),masuk:s.masuk,div:staffDiv(s),ten:tenureText(d),resign:!!s._resign};});
+    const rows=arr.map(s=>{const d2=parseTglMasuk(s.masuk);return {nama:s.nama,jab:jabatanText(s),masuk:s.masuk,div:staffDiv(s),ten:tenureText(d2),resign:!!s._resign,cat:catFor(s,ACTIVE_MONTH,catatan)};});
     const ord={'Marketing':0,'Back Office':1};
     rows.sort((a,b)=>(ord[a.div]-ord[b.div])||(a.resign-b.resign)||(b.ten.months-a.ten.months));
     let body='',cur=null;
-    rows.forEach(s=>{if(s.div!==cur){cur=s.div;const akt=rows.filter(x=>x.div===cur&&!x.resign).length,res=rows.filter(x=>x.div===cur&&x.resign).length;body+=`<tr class="mrow"><td colspan="3">${cur==='Marketing'?'📈':'🗂️'} ${cur} · ${akt} aktif${res?' · '+res+' resign':''}</td></tr>`;}
-      body+=`<tr${s.resign?' style="opacity:.6"':''}><td><span class="avatar">${(s.nama||'?').slice(0,2).toUpperCase()}</span><b>${s.nama||'—'}</b>${s.resign?' <span class="tag t-red" style="font-size:9.5px;padding:1px 6px">resign</span>':''}<div class="mini">${s.jab||''}</div></td><td>${s.masuk||'—'}</td><td>${s.resign?'—':s.ten.text}</td></tr>`;});
-    return `<div style="max-height:520px;overflow:auto"><table class="ppjb big"><thead><tr><th>Nama</th><th>Tanggal Masuk</th><th>Lama Aktif Bekerja</th></tr></thead><tbody>${body}</tbody></table></div>`;
+    rows.forEach(s=>{if(s.div!==cur){cur=s.div;const akt=rows.filter(x=>x.div===cur&&!x.resign).length,res=rows.filter(x=>x.div===cur&&x.resign).length;body+=`<tr class="mrow"><td colspan="4">${cur==='Marketing'?'📈':'🗂️'} ${cur} · ${akt} aktif${res?' · '+res+' resign':''}</td></tr>`;}
+      body+=`<tr${s.resign?' style="opacity:.6"':''}><td><span class="avatar">${(s.nama||'?').slice(0,2).toUpperCase()}</span><b>${s.nama||'—'}</b>${s.resign?' <span class="tag t-red" style="font-size:9.5px;padding:1px 6px">resign</span>':''}<div class="mini">${s.jab||''}</div></td><td>${s.masuk||'—'}</td><td>${s.resign?'—':s.ten.text}</td><td>${s.cat?'<span class="catnote">'+s.cat+'</span>':'<span class="mini">—</span>'}</td></tr>`;});
+    return `<div style="max-height:520px;overflow:auto"><table class="ppjb big"><thead><tr><th>Nama</th><th>Tanggal Masuk</th><th>Lama Aktif Bekerja</th><th>${catColLabel}</th></tr></thead><tbody>${body}</tbody></table></div>`;
   };
   const rTag=s=>s==='Lolos'?'t-green':s==='Ditolak'?'t-red':'t-gray';
   const recRows=recruit.map((c,i)=>{const st=stNorm(c.status||c.hr||'');const joined=((c.join||'').trim()!=='')||st==='Lolos/Join';const hasil=joined?'Lolos':(st==='Tidak Lolos'||st==='Mundur'||st==='Tidak Hadir')?'Ditolak':'Proses';
     return `<tr><td class="num mini">${i+1}</td><td><b>${c.nama||'—'}</b></td><td>${c.penempatan||'—'}</td><td>${c.status||c.hr||'—'}</td><td><span class="tag ${rTag(hasil)}">${hasil}</span></td><td>${c.join||'—'}</td></tr>`;}).join('')||'<tr><td colspan="6" class="mini">Belum ada data.</td></tr>';
   const monRows=monthly.map(m=>`<tr><td><b>${m.bulan}</b></td><td class="num">${m.undang}</td><td class="num">${m.hadir}</td><td class="num">${m.tdkhadir}</td><td class="num">${m.losHR}</td><td class="num">${m.losUser}</td><td class="num"><span class="tag t-green">${m.join}</span></td></tr>`).join('')||'<tr><td colspan="7" class="mini">Belum ada data.</td></tr>';
   const tabs=`<div class="tabs" id="hrdViewTabs"><button data-view="all" class="active">Ringkasan Divisi</button><button data-view="staff">Data Staff</button><button data-view="rekrut">Rekrutmen</button></div>`;
+  const hrdCmp=cmpLine('CV masuk',cntMonth(recruit,activeCalKey(),'cvMasuk'),cntMonth(recruit,activeCalKey()-1,'cvMasuk'));
   const ringkasan=`<div class="hrdview" data-view="all">
     <div class="kpis">${kpi('Total Staff',nS,'kumulatif','up')+kpi('Marketing',nMk,'staff penjualan')+kpi('Back Office',nBO,'BO / support')+kpi('CV Masuk',cvMasuk,'pelamar')+kpi('Diterima Kerja',lolos,'lolos rekrutmen','up')}</div>
+    ${hrdCmp}
     <h2 class="sh"><span class="dot"></span>Komposisi Staff</h2>
     <div class="grid g2">${cardChart('Marketing vs Back Office','klasifikasi divisi',divDonut,true)}${cardChart('Staff per Kantor','Jogja vs Madiun',officeDonut,true)}</div>
     <h2 class="sh"><span class="dot"></span>Rekrutmen (Kumulatif)</h2>
@@ -1122,8 +1240,10 @@ async function loadHRD(){let d=null;try{d=await fetchHRD();}catch(e){}
   const staff=(d&&d.staff&&d.staff.length)?d.staff:FALLBACK_HRD.staff;   // live per-tab; fallback baked hanya utk preview
   const recruit=(d&&d.recruit&&d.recruit.length)?d.recruit:FALLBACK_HRD.recruit;
   const monthly=(d&&d.monthly&&d.monthly.length)?d.monthly:FALLBACK_HRD.monthly;
+  const catatan=(d&&d.catatan&&d.catatan.length)?d.catatan:FALLBACK_CATATAN;
   const live=!!(d&&d.staff&&d.staff.length);
-  renderHRD({staff,recruit,monthly},!!live);}
+  HRD_LAST={staff,recruit,monthly,catatan,live};
+  renderHRD({staff,recruit,monthly,catatan},!!live);}
 async function loadKons(){
   let aryo=null,algi=null;
   try{if(SHEET_KONS.aryo)aryo=parseTable(await fetchCSV(SHEET_KONS.aryo));}catch(e){}
@@ -1194,6 +1314,7 @@ function applyMonth(key){
   else{data=MONTH_DATA[key]||emptyData();const has=data.funnel.respon;const m=RSC_MONTHS.find(x=>x.key===key);live=!!has;msg=has?'':(m&&!m.csvA?('⚙️ <b>'+m.label+'</b> belum tersambung — Publish-to-web tab RSCH & DATA CLOSING sheet bulan ini, lalu kirim URL-nya ke Luma buat diaktifkan.'):('ℹ️ <b>'+monthLabel(key)+'</b> belum ada data di sheet.'));}
   renderAll(data);setStatus(live,msg);stamp();
   renderTrend();renderDivisiRingkasan();renderOverviewExtras();if(PPJB_STATE)renderPPJB(PPJB_STATE.list,PPJB_STATE.live);
+  if(HRD_LAST)renderHRD({staff:HRD_LAST.staff,recruit:HRD_LAST.recruit,monthly:HRD_LAST.monthly,catatan:HRD_LAST.catatan},HRD_LAST.live);
   const sel=document.getElementById('monthSel');if(sel)sel.value=key;
 }
 async function loadRSC(){
