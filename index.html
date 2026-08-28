@@ -279,9 +279,10 @@ const NITRO_PUB={
   agu:"https://docs.google.com/spreadsheets/d/e/2PACX-1vSk3Q3Fx3jy0Rvek599p4idFzdB-i8B4orfJjTRYtr86edC4El4Kz2eQbKUWSD1tQ/pub"
 };
 const nitroTab=(base,gid)=>base+"?gid="+gid+"&single=true&output=csv";
+const NITRO_HOT_GID='1722136904';
 const NITRO_RSC_MONTHS=[
   {key:'jul',label:'Juli 2026',csvA:NITRO_PUB.jul+"?output=csv",_base:NITRO_PUB.jul},
-  {key:'agu',label:'Agustus 2026',csvA:NITRO_PUB.agu+"?output=csv",_base:NITRO_PUB.agu}
+  {key:'agu',label:'Agustus 2026',csvA:NITRO_PUB.agu+"?output=csv",_base:NITRO_PUB.agu,csvHot:nitroTab(NITRO_PUB.agu,NITRO_HOT_GID)}
 ];
 const SHEET_PPJB_NITRO={csv:"https://docs.google.com/spreadsheets/d/e/2PACX-1vQgCG5JcVuAPImNjXBO9t_1dGNbhvQrSPsr7urVFgPCk6Rv6YDjHNr8MwUX9I5ERNR_ZN-Il__ChxmO/pub?output=csv"};
 const FALLBACK_PPJB=[
@@ -1715,38 +1716,112 @@ const COMPANIES={
   nitro:{label:'Nitro Megah Properti',sub:'Madiun',RSC_MONTHS:NITRO_RSC_MONTHS,SHEET_LH:{},SHEET_PPJB:SHEET_PPJB_NITRO,konstruksi:false,MARKETERS:MARKETERS_NITRO,PROJECTS:PROJECTS_NITRO,SUMBER:SUMBER_NITRO}
 };
 let VIEW='gateway',BOOTED=false,LOADED_CO=null;
+let CO_SNAP={garuda:null,nitro:null},KMP_LOADED=false;
 function setGwLogos(){const s=(id,src)=>{const e=document.getElementById(id);if(e&&src)e.src=src;};s('gwLogoG',LOGO_GSR);s('gwLogoN',LOGO_NITRO);s('gwLogoK1',LOGO_GSR);s('gwLogoK2',LOGO_NITRO);}
 function showGateway(){VIEW='gateway';setGwLogos();document.getElementById('gateway').style.display='flex';}
 function setBrand(name,sub){const n=document.getElementById('brandName'),s=document.getElementById('brandSub');if(n)n.textContent=name;if(s)s.textContent=sub;}
 function setBrandLogo(html){const l=document.getElementById('brandLogo');if(l)l.innerHTML=html;}
 function applyCompanyConfig(co){const c=COMPANIES[co];if(!c)return;RSC_MONTHS=c.RSC_MONTHS;SHEET_LH=c.SHEET_LH;if(c.SHEET_PPJB)SHEET_PPJB=c.SHEET_PPJB;if(c.MARKETERS)MARKETERS=c.MARKETERS;if(c.PROJECTS)PROJECTS=c.PROJECTS;if(c.SUMBER)SUMBER=c.SUMBER;document.getElementById('coName').textContent=c.sub||c.label;setBrand(c.label,'Dashboard RSC — Live');setBrandLogo(`<img alt="${c.label}" src="${co==='nitro'?LOGO_NITRO_LIGHT:LOGO_GSR}">`);}
+/* Snapshot metrik kumulatif 1 perusahaan (dipanggil tepat setelah loadAll perusahaan itu). */
+function snapshotCO(co){
+  const arr=RSC_MONTHS.map(m=>MONTH_DATA[m.key]).filter(d=>d&&d.funnel&&d.funnel.respon);
+  const d=arr.length?mergeData(arr):emptyData();
+  const respon=d.funnel.respon||0,survei=d.funnel.survei||0;
+  const clU=d.closing.units!=null?d.closing.units:(d.closing.count||0);
+  const topMk=Object.entries(d.respon||{}).sort((a,b)=>b[1]-a[1])[0]||null;
+  const topPr=Object.entries(d.proyekRespon||{}).sort((a,b)=>b[1]-a[1])[0]||null;
+  const topSrc=Object.entries(d.sumber||{}).sort((a,b)=>b[1]-a[1])[0]||null;
+  CO_SNAP[co]={
+    label:COMPANIES[co].label, sub:COMPANIES[co].sub,
+    respon, survei, closing:clU, closingCount:d.closing.count||0,
+    hot:d.funnel.hotProspek!=null?d.funnel.hotProspek:null,
+    nominal:d.closing.nominal||0,
+    ppjb:(SUM.ppjb&&SUM.ppjb.total)||0, lokasi:(SUM.lokasi&&SUM.lokasi.total)||0,
+    marketers:(MARKETERS||[]).length,
+    convRS: respon?Math.round(survei/respon*100):0,        // % leads jadi survei
+    convSC: survei?Math.round(clU/survei*100):0,            // % survei jadi closing
+    leadPerClose: clU?Math.round(respon/clU):0,
+    topMk, topPr, topSrc, months:arr.length, live:arr.length>0
+  };
+}
+async function loadBothForKomparasi(){
+  for(const co of ['garuda','nitro']){
+    applyCompanyConfig(co); LOADED_CO=co; MONTH_DATA={};
+    try{ await loadRSC(); await Promise.all([loadPPJB(),loadLH()]); }catch(e){}
+    snapshotCO(co);
+  }
+  LOADED_CO=null; BOOTED=false;   // paksa reload bersih kalau balik ke dashboard tunggal
+}
 function enterView(v){
   VIEW=v;document.getElementById('gateway').style.display='none';
-  applyCompanyConfig(v==='nitro'?'nitro':'garuda');
   document.body.classList.remove('mode-garuda','mode-nitro','mode-komparasi');
   document.body.classList.add('mode-'+v);
-  if(v==='komparasi'){document.getElementById('coName').textContent='GSR × Nitro';setBrand('Helicopter View','GSR & Nitro Megah Properti');setBrandLogo(`<img class="dual" src="${LOGO_GSR}"><img class="dual" src="${LOGO_NITRO_LIGHT}">`);}
+  if(v==='komparasi'){
+    document.getElementById('coName').textContent='GSR × Nitro';
+    setBrand('Helicopter View','GSR & Nitro Megah Properti');
+    setBrandLogo(`<img class="dual" src="${LOGO_GSR}"><img class="dual" src="${LOGO_NITRO_LIGHT}">`);
+    goTab('komparasi');
+    const el=document.getElementById('komparasi');
+    if(KMP_LOADED){renderKomparasi();}
+    else{ if(el)el.innerHTML='<div class="note">⏳ Menarik data dari dashboard GSR &amp; Nitro… sebentar ya.</div>';
+      loadBothForKomparasi().then(()=>{KMP_LOADED=true;renderKomparasi();}); }
+    return;
+  }
+  applyCompanyConfig(v==='nitro'?'nitro':'garuda');
   const co=(v==='nitro')?'nitro':'garuda';
   const needLoad=!BOOTED||(co!==LOADED_CO);
-  if(needLoad){BOOTED=true;LOADED_CO=co;renderKonstruksi();loadAll().then(()=>{if(VIEW==='komparasi')renderKomparasi();});}
-  else if(v==='komparasi')renderKomparasi();
-  goTab(v==='komparasi'?'komparasi':'overview');
+  if(needLoad){BOOTED=true;LOADED_CO=co;renderKonstruksi();loadAll();}
+  goTab('overview');
+}
+function kmpRupiah(v){return 'Rp'+(v||0).toLocaleString('id-ID');}
+function kmpInsights(G,N){
+  const rpf=kmpRupiah;const win=(g,n,hb=true)=>g===n?'imbang':((hb?g>n:g<n)?G.label:N.label);
+  const ins=[];
+  ins.push(['Volume Leads',`GSR <b>${G.respon}</b> vs Nitro <b>${N.respon}</b> respon — ${G.respon===N.respon?'imbang':'<b>'+win(G.respon,N.respon)+'</b> unggul volume leads'}.`]);
+  ins.push(['Survei Lokasi',`GSR <b>${G.survei}</b> vs Nitro <b>${N.survei}</b> survei${G.survei===N.survei?'':' — <b>'+win(G.survei,N.survei)+'</b> lebih banyak survei'}.`]);
+  ins.push(['Closing & Nominal',`GSR <b>${G.closing}</b> unit (${rpf(G.nominal)}) vs Nitro <b>${N.closing}</b> unit (${rpf(N.nominal)})${G.closing===N.closing?'':' — <b>'+win(G.closing,N.closing)+'</b> lebih banyak closing'}.`]);
+  ins.push(['Konversi Leads→Survei',`GSR <b>${G.convRS}%</b> vs Nitro <b>${N.convRS}%</b> — ${G.convRS===N.convRS?'imbang':'<b>'+win(G.convRS,N.convRS)+'</b> lebih efisien nurunin leads ke survei'}.`]);
+  ins.push(['Konversi Survei→Closing',`GSR <b>${G.convSC}%</b> vs Nitro <b>${N.convSC}%</b> — ${G.convSC===N.convSC?'imbang':'<b>'+win(G.convSC,N.convSC)+'</b> lebih jago nutup deal'}.`]);
+  if(G.leadPerClose&&N.leadPerClose)ins.push(['Efisiensi Iklan',`Butuh <b>${G.leadPerClose}</b> leads/closing (GSR) vs <b>${N.leadPerClose}</b> (Nitro) — ${G.leadPerClose===N.leadPerClose?'imbang':'<b>'+win(G.leadPerClose,N.leadPerClose,false)+'</b> lebih hemat leads per closing'}.`]);
+  const tm=[];if(G.topMk)tm.push(`GSR: <b>${G.topMk[0]}</b> (${G.topMk[1]})`);if(N.topMk)tm.push(`Nitro: <b>${N.topMk[0]}</b> (${N.topMk[1]})`);
+  if(tm.length)ins.push(['Top Marketing',tm.join(' · ')+' respon.']);
+  const tp=[];if(G.topPr)tp.push(`GSR: <b>${G.topPr[0]}</b> (${G.topPr[1]})`);if(N.topPr)tp.push(`Nitro: <b>${N.topPr[0]}</b> (${N.topPr[1]})`);
+  if(tp.length)ins.push(['Proyek Ter-respon',tp.join(' · ')+' respon.']);
+  ins.push(['Gabungan 2 Cabang',`<b>${G.respon+N.respon}</b> leads · <b>${G.survei+N.survei}</b> survei · <b>${G.closing+N.closing}</b> closing · <b>${rpf(G.nominal+N.nominal)}</b>.`]);
+  return `<table class="big"><thead><tr><th>Aspek</th><th>Temuan</th></tr></thead><tbody>${ins.map(r=>`<tr><td><b>${r[0]}</b></td><td>${r[1]}</td></tr>`).join('')}</tbody></table>`;
 }
 function renderKomparasi(){
   const el=document.getElementById('komparasi');if(!el)return;
-  const R=SUM.respon||{},P=SUM.ppjb||{},L=SUM.lokasi||{},M=SUM.media||{};
-  const fmt=v=>v==null?'—':v;
-  const rows=[['Total Respon Online',R.total,R.total],['Survei Lokasi',R.survei,R.survei],['Closing (unit)',R.closing,R.closing],['PPJB Terlaksana',P.total,P.total],['Calon Lokasi (Land Hunter)',L.total,L.total],['Konten Media (dikelola bersama)',M.total,M.total]];
+  const G=CO_SNAP.garuda,N=CO_SNAP.nitro;
+  if(!G||!N){el.innerHTML='<div class="note">⏳ Data belum lengkap — buka lagi Helicopter View untuk menarik ulang data GSR &amp; Nitro.</div>';return;}
+  const rpf=kmpRupiah,fmt=v=>v==null?'—':v;
+  const rows=[
+    ['Total Respon Online',G.respon,N.respon],['Survei Lokasi',G.survei,N.survei],
+    ['Hot Prospek',G.hot,N.hot],['Closing (unit)',G.closing,N.closing],
+    ['Nominal Closing',rpf(G.nominal),rpf(N.nominal)],
+    ['Konversi Leads→Survei',G.convRS+'%',N.convRS+'%'],['Konversi Survei→Closing',G.convSC+'%',N.convSC+'%'],
+    ['PPJB Terlaksana',G.ppjb,N.ppjb],['Calon Lokasi (Land Hunter)',G.lokasi,N.lokasi],['Jumlah Marketing',G.marketers,N.marketers]
+  ];
   const trs=rows.map(r=>`<tr><td><b>${r[0]}</b></td><td class="num">${fmt(r[1])}</td><td class="num">${fmt(r[2])}</td></tr>`).join('');
+  const score=c=>(c.closing*1000)+((c.nominal||0)/1e6)+c.respon;
+  const winner=score(G)===score(N)?null:(score(G)>score(N)?G:N);
+  const verdict=winner?`<div class="note">🏆 Cabang paling produktif: <b>${winner.label}</b> — ${winner.closing} closing (${rpf(winner.nominal)}) · ${winner.respon} leads · konversi survei→closing ${winner.convSC}%.</div>`:'';
+  const bar=(title,g,n,color)=>cardChart(title,'GSR vs Nitro',{type:'bars',labels:['GSR','Nitro'],data:[g||0,n||0],color},true);
   el.innerHTML=`
-    <div class="note">⚖️ Helicopter View menampilkan data perusahaan yang sedang di-load. Versi side-by-side dua data sekaligus menyusul. Land Hunter Nitro belum ada datanya. Media &amp; HRD dikelola bersama untuk 2 cabang.</div>
     <div class="kmp-head"><img class="kmp-logo" src="${LOGO_GSR}" alt="GSR"><span class="kmp-vs">vs</span><img class="kmp-logo" src="${LOGO_NITRO}" alt="Nitro"></div>
-    <h2 class="sh"><span class="dot"></span>Ringkasan GSR vs Nitro</h2>
-    <div class="card"><div style="overflow:auto"><table class="big"><thead><tr><th>Metrik</th><th class="num">GSR (Jogja)</th><th class="num">Nitro Megah Properti</th></tr></thead><tbody>${trs}</tbody></table></div></div>
-    <div class="grid g2" style="margin-top:16px">
-      <div class="card"><h3><img class="kmp-logo-sm" src="${LOGO_GSR}"> Garuda Sukses Raya <span class="mini">Jogja</span></h3><div class="kpis">${kpi('Respon',R.total||0,'leads')+kpi('Closing',R.closing||0,'unit')+kpi('PPJB',P.total||0,'berkas')+kpi('Calon Lokasi',L.total||0,'land hunter')}</div></div>
-      <div class="card"><h3><img class="kmp-logo-sm" src="${LOGO_NITRO}"> Nitro Megah Properti <span class="mini">(Madiun)</span></h3><div class="kpis">${kpi('Respon',R.total||0,'leads')+kpi('Closing',R.closing||0,'unit')+kpi('PPJB',P.total||0,'berkas')+kpi('Calon Lokasi',L.total||0,'land hunter')}</div></div>
-    </div>`;
+    ${verdict}
+    <div class="grid g2" style="margin-top:6px">
+      <div class="card"><h3><img class="kmp-logo-sm" src="${LOGO_GSR}"> ${G.label} <span class="mini">${G.sub}</span></h3><div class="kpis">${kpi('Respon',G.respon,'leads')+kpi('Survei',G.survei,'lokasi')+kpi('Closing',G.closing,'unit')+kpi('Nominal',rpf(G.nominal),'nilai')}</div>${G.live?'':'<div class="mini">⚠️ data GSR belum tersambung live</div>'}</div>
+      <div class="card"><h3><img class="kmp-logo-sm" src="${LOGO_NITRO}"> ${N.label} <span class="mini">${N.sub}</span></h3><div class="kpis">${kpi('Respon',N.respon,'leads')+kpi('Survei',N.survei,'lokasi')+kpi('Closing',N.closing,'unit')+kpi('Nominal',rpf(N.nominal),'nilai')}</div>${N.live?'':'<div class="mini">⚠️ data Nitro belum tersambung live</div>'}</div>
+    </div>
+    <h2 class="sh" style="margin-top:20px"><span class="dot"></span>Perbandingan Metrik</h2>
+    <div class="card"><div style="overflow:auto"><table class="big"><thead><tr><th>Metrik</th><th class="num">GSR (Jogja)</th><th class="num">Nitro (Madiun)</th></tr></thead><tbody>${trs}</tbody></table></div></div>
+    <h2 class="sh" style="margin-top:20px"><span class="dot"></span>Perbandingan Visual</h2>
+    <div class="grid g2">${bar('Respon Online',G.respon,N.respon,C.blue)}${bar('Survei Lokasi',G.survei,N.survei,C.amber)}</div>
+    <div class="grid g2" style="margin-top:14px">${bar('Closing (unit)',G.closing,N.closing,C.violet)}${bar('Konversi Survei→Closing (%)',G.convSC,N.convSC,C.teal)}</div>
+    <h2 class="sh" style="margin-top:20px"><span class="dot"></span>Kesimpulan Helicopter View <span class="mini">(otomatis dari data 2 cabang)</span></h2>
+    <div class="card">${kmpInsights(G,N)}</div>
+    <div class="note" style="margin-top:14px">Catatan: angka = total kumulatif semua bulan yang tersambung. Media &amp; HRD dikelola bersama 2 cabang. Land Hunter Nitro belum ada datanya.</div>`;
 }
 showGateway();
 </script>
