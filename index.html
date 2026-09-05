@@ -297,7 +297,7 @@ const NITRO_RSC_MONTHS=[
   {key:'agu',label:'Agustus 2026',csvA:NITRO_PUB.agu+"?output=csv",_base:NITRO_PUB.agu,csvHot:nitroTab(NITRO_PUB.agu,NITRO_HOT_GID),csvSurvey:NITRO_SURVEY_AGU}
 ];
 /* PPJB Nitro — sheet terpisah dari Jogja (dulu salah nempel data Jogja). File "PPJB Nitro" belum di-Publish-to-web, ambil via export CSV langsung by gid. */
-const SHEET_PPJB_NITRO={csv:"https://docs.google.com/spreadsheets/d/1uGA5il1-Dtv18lXerHntWYocO_r8GMLYJXDyj4EvYsE/export?format=csv&gid=0"};
+const SHEET_PPJB_NITRO={csv:"https://docs.google.com/spreadsheets/d/e/2PACX-1vQgCG5JcVuAPImNjXBO9t_1dGNbhvQrSPsr7urVFgPCk6Rv6YDjHNr8MwUX9I5ERNR_ZN-Il__ChxmO/pub?output=csv"};
 const FALLBACK_PPJB=[
  {marketing:'Suriya',konsumen:'Sad Diyanto',tanggal:'13 Desember 2023',proyek:'Green Victoria',kavling:'B4',luas:150,status:'Terlaksana',keterangan:''},
  {marketing:'Krisna',konsumen:'Hanny',tanggal:'29 Juni 2024',proyek:'Green Victoria',kavling:'B3',luas:130,status:'Terlaksana',keterangan:'Sudah AJB'},
@@ -1062,9 +1062,9 @@ function renderKonstruksi(data){
    PPJB — parse & render (sub-section Admin Marketing)
    ============================================================ */
 function parsePPJB(rows){
-  const hi=rows.findIndex(r=>r.some(c=>/nama konsumen/i.test(c||'')));if(hi<0)return [];
+  const hi=rows.findIndex(r=>r.some(c=>/konsumen/i.test(c||'')));if(hi<0)return [];
   const h=rows[hi].map(c=>(c||'').trim().toLowerCase());const col=n=>h.findIndex(x=>x.includes(n));
-  const cM=col('nama marketing'),cK=col('nama konsumen'),cT=col('tanggal'),cP=col('proyek'),cKav=col('kavling'),cL=col('luas'),cS=col('status'),cKet=col('keterangan');
+  const cM=col('marketing'),cK=col('konsumen'),cT=col('tanggal'),cP=col('proyek'),cKav=col('kavling'),cL=col('luas'),cS=col('status'),cKet=col('keterangan');
   const out=[];const push=(r,o)=>{const kon=((r[cK+o]||'')+'').trim();if(!kon||/nama konsumen/i.test(kon))return;
     out.push({marketing:((r[cM+o]||'')+'').trim(),konsumen:kon,tanggal:((r[cT+o]||'')+'').trim(),proyek:((r[cP+o]||'')+'').trim(),kavling:((r[cKav+o]||'')+'').trim(),luas:parseFloat((((r[cL+o]||'')+'').replace(/[^0-9.]/g,'')))||0,status:((r[cS+o]||'')+'').trim(),keterangan:((r[cKet+o]||'')+'').trim()});};
   for(let i=hi+1;i<rows.length;i++){const r=rows[i];push(r,0);push(r,10);}
