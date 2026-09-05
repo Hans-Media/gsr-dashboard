@@ -788,7 +788,75 @@ function renderMarketing(data){
   SUBTAB.marketing=selTeam;
 }
 function renderAll(data){RSC=data;renderOverview(data);renderAdmin(data);renderMarketing(data);renderKonstruksi(data);renderKonsumen(data);}
-const CRM_URL="https://claude.ai/code/artifact/143b860c-507a-4d2b-b063-bfaa10910ce6";
+const CRM_URL="https://gsr-staff.pages.dev";
+/* ============================================================
+   Live KPI dari CRM Database Konsumen (gsr-staff, 26 sheet via Google Sheets API).
+   Fetch /api/data (route sama, di-gate PIN sama kayak gsr-staff) — butuh ENV
+   GOOGLE_API_KEY & SHEETS_JSON yang SAMA ditambahkan ke project Cloudflare Pages
+   gsr-summary (bukan cuma di gsr-staff). Kalau ENV belum ada, fallback ke pesan +
+   link ke CRM lengkap. Cuma dipakai utk Garuda/Jogja — Nitro belum punya CRM ini.
+   ============================================================ */
+const KRM_MONTHS=["JANUARI","FEBRUARI","MARET","APRIL","MEI","JUNI","JULI","AGUSTUS","SEPTEMBER","OKTOBER","NOVEMBER","DESEMBER"];
+function krmCell(row,i){const v=(row&&i<row.length)?row[i]:'';return v==null?'':String(v).trim();}
+function krmMid(d){return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime();}
+function krmDiff(a,b){return Math.round((krmMid(b)-krmMid(a))/86400000);}
+function krmDate(s,year,month){s=(s==null?'':String(s).trim());const m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);let day=1;
+  if(m)day=parseInt(m[1],10);else{const m2=s.match(/(\d{1,2})/);if(m2)day=parseInt(m2[1],10);}
+  if(!(day>=1&&day<=31))day=1;return new Date(year,month-1,day);}
+function krmLoose(s){if(s==null||s==='')return null;s=String(s).trim();
+  let m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);if(m)return new Date(+m[1],+m[2]-1,+m[3]);
+  m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);if(m){let y=+m[3];if(y<100)y+=2000;return new Date(y,+m[2]-1,+m[1]);}
+  return null;}
+function krmTier(klas){const k=(klas||'').toString().trim().toLowerCase();
+  if(!k)return 'Baru';
+  if(k.indexOf('hot')>-1)return 'Hot';
+  if(k.indexOf('prospect')===0||k==='warm')return 'Middle';
+  if(k.indexOf('new lead')>-1)return 'Low';
+  if(k.indexOf('lost')>-1||k.indexOf('cold')>-1)return 'Low';
+  if(k.indexOf('closing')>-1||k.indexOf('deal')>-1)return 'Hot';
+  if(k.indexOf('book')>-1)return 'Hot';
+  return 'Low';}
+/* Ringkasan angka doang (bukan tabel penuh) — cukup buat KPI, sesuai request Hans. */
+function krmSummarize(sheets){
+  let total=0,hot=0,mid=0,baru=0,fu5=0,lh=0;const today=new Date();
+  (sheets||[]).forEach(s=>{const vr=(s.v&&s.v.valueRanges)||[];const year=+s.year;
+    vr.forEach(rg=>{const nm=String(rg.range||'').split('!')[0].replace(/'/g,'').toUpperCase();
+      const mi=KRM_MONTHS.indexOf(nm);if(mi<0)return;const month=mi+1;
+      (rg.values||[]).forEach(row=>{const nama=krmCell(row,2);if(!nama)return;total++;
+        const tier=krmTier(krmCell(row,6));
+        if(tier==='Hot')hot++;else if(tier==='Middle')mid++;
+        if(tier==='Baru')baru++;
+        const resp=krmDate(krmCell(row,1),year,month);const fu=krmLoose(krmCell(row,14));
+        let days;if(fu)days=Math.max(0,krmDiff(fu,today));else if(tier!=='Baru')days=Math.max(0,krmDiff(resp,today));else days=0;
+        if(days>=5)fu5++;
+      });
+    });
+  });
+  return {total,hot,mid,baru,fu5,lh};
+}
+let KRM_STATE=null;
+async function loadKonsumenCRM(){
+  try{const r=await fetch('/api/data',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);
+    const j=await r.json();if(j&&j.error)throw new Error(j.error);
+    KRM_STATE={live:true,...krmSummarize(j.sheets||[])};}
+  catch(e){KRM_STATE={live:false};}
+  renderKonsumenCRM();
+}
+function renderKonsumenCRM(){
+  const el=document.getElementById('konsumenCRM');if(!el)return;
+  if(typeof LOADED_CO!=='undefined'&&LOADED_CO==='nitro'){el.innerHTML='';return;}
+  if(!KRM_STATE){el.innerHTML='<div class="note">⏳ Menarik KPI dari CRM Database Konsumen…</div>';return;}
+  if(!KRM_STATE.live){el.innerHTML='<div class="note">⚙️ KPI live CRM belum bisa ditarik dari sini — butuh ENV <code>GOOGLE_API_KEY</code> &amp; <code>SHEETS_JSON</code> (sama kayak project gsr-staff) ditambahkan ke Cloudflare Pages project gsr-summary. Sementara buka <a href="'+CRM_URL+'" target="_blank">Database Konsumen lengkap</a> buat data real-time.</div>';return;}
+  const k=KRM_STATE;
+  el.innerHTML='<div class="note">✅ Live dari CRM Database Konsumen — '+k.total.toLocaleString('id-ID')+' leads.</div>'
+    +'<div class="kpis">'+kpi('Total Prospek (CRM)',k.total,'seluruh database')
+    +kpi('Hot Prospek',k.hot,'sinyal beli kuat','up')
+    +kpi('Middle Prospek',k.mid,'masih menimbang')
+    +kpi('Belum Diklasifikasi',k.baru,'lead mentah autoinput')
+    +kpi('Perlu FU Segera',k.fu5,'5+ hari tanpa FU')
+    +kpi('Land Hunter',k.lh,'lokasi belum ada lahan')
+    +'</div>';
+}
 function renderKonsumen(data){
   const el=document.getElementById('konsumen');if(!el)return;
   const surv=(data.surveis||[]);const total=surv.length;
@@ -799,11 +867,13 @@ function renderKonsumen(data){
   const rows=surv.slice().sort((a,b)=>tglSortKey(b.tanggal)-tglSortKey(a.tanggal)).map(s=>{const m=prospekMeta(s.prospek);const isC=/clos|deal|ya|sudah/i.test(s.closing||'');return `<tr><td><b>${s.konsumen||'—'}</b></td><td><span class="avatar">${(s.marketing||'?').slice(0,2).toUpperCase()}</span>${s.marketing||'—'}</td><td>${s.proyek||'—'}</td><td>${s.tanggal||'—'}</td><td>${m?`<span class="tag ${m.cls}">${m.code}</span>`:'<span class="mini">—</span>'}</td><td>${s.closing?`<span class="tag ${isC?'t-green':'t-gray'}">${s.closing}</span>`:'<span class="mini">—</span>'}</td></tr>`;}).join('')||'<tr><td colspan="6" class="mini">Belum ada konsumen survei terdata bulan ini.</td></tr>';
   const kp=kpi('Konsumen Survei',total,'terdata')+kpi('Hot Prospek',pc.HP,'paling panas','up')+kpi('Medium Prospek',pc.MP,'menengah')+kpi('Low Prospek',pc.LP,'perlu digarap')+kpi('Closing',closingUnits,'unit','up');
   el.innerHTML=`
-    <div class="note">ℹ️ Ringkasan CRM konsumen (tier prospek dari kolom STATUS PROSPEK RSC). Database lengkap — filter, pipeline, jadwal follow-up — ada di artifact terpisah.</div>
+    <div id="konsumenCRM"></div>
+    <div class="note">ℹ️ Ringkasan di bawah dari tier prospek kolom STATUS PROSPEK RSC (per bulan aktif). Database lengkap — filter, pipeline, jadwal follow-up — ada di CRM terpisah.</div>
     <div class="kpis">${kp}</div>
     <div style="margin:14px 0"><a href="${CRM_URL}" target="_blank" class="btn" style="text-decoration:none;display:inline-flex">↗ Buka Database Konsumen lengkap</a></div>
     <h2 class="sh"><span class="dot"></span>Tier Prospek &amp; Daftar Konsumen</h2>
     <div class="grid g2">${cardChart('Tier Prospek',terklas+' terklasifikasi',donut,true)}<div class="card"><h3>Konsumen Survei</h3><div class="sub">${total} konsumen · urut terbaru</div><div style="max-height:460px;overflow:auto"><table class="big"><thead><tr><th>Konsumen</th><th>Marketing (PIC)</th><th>Proyek</th><th>Tanggal</th><th>Tier</th><th>Closing</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`;
+  renderKonsumenCRM();
 }
 
 /* ============================================================
@@ -1733,7 +1803,7 @@ async function loadRSC(){
   let def=(RSC_MONTHS[0]&&RSC_MONTHS[0].key)||'jul';RSC_MONTHS.forEach(m=>{if(MONTH_DATA[m.key]&&MONTH_DATA[m.key].funnel.respon)def=m.key;});
   ACTIVE_MONTH=def;fillMonthSelect();applyMonth(def);
 }
-async function loadAll(){await loadRSC();await Promise.all([loadLH(),loadMedia(),loadPPJB(),loadHRD(),loadKons()]);renderDivisiRingkasan();renderOverviewExtras();}
+async function loadAll(){await loadRSC();await Promise.all([loadLH(),loadMedia(),loadPPJB(),loadHRD(),loadKons(),loadKonsumenCRM()]);renderDivisiRingkasan();renderOverviewExtras();}
 document.getElementById('refreshBtn').onclick=loadAll;
 
 /* ===== Multi-perusahaan: gateway + pilihan dashboard ===== */
