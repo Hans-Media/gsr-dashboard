@@ -886,6 +886,14 @@ function renderKonsumen(data){
 function parseHarga(t){if(!t)return 0;let s=String(t).toLowerCase().replace(/rp/g,'').replace(/\/\s*m2?/g,'').replace(/per\s*m2?/g,'').replace(/\s/g,'');let mult=1;if(/(jt|juta)/.test(s))mult=1e6;else if(/(rb|ribu)/.test(s))mult=1e3;const num=parseFloat(s.replace(/[^0-9.,]/g,'').replace(',','.'));return isNaN(num)?0:Math.round(num*mult);}
 function parseLuas(t){const n=parseFloat(String(t==null?'':t).replace(/[^0-9.]/g,''));return isNaN(n)?0:n;}
 function rupiah(n){if(!n)return '—';if(n>=1e9)return 'Rp '+(n/1e9).toFixed(2).replace('.',',')+' M';if(n>=1e6)return 'Rp '+(n/1e6).toFixed(1).replace('.',',')+' jt';if(n>=1e3)return 'Rp '+Math.round(n/1e3)+' rb';return 'Rp '+n;}
+/* Normalisasi nama Area/Sektor Land Hunter: trim + rapikan spasi ganda + Title Case,
+   biar "sleman timur" / "Sleman Timur" / "SLEMAN TIMUR" kegabung jadi 1 baris di Ringkasan
+   per Sektor (bukan kesebar jadi beberapa baris duplikat gara-gara beda kapitalisasi di sheet). */
+function normArea(s){
+  s=(s||'').trim().replace(/\s+/g,' ');
+  if(!s)return s;
+  return s.toLowerCase().replace(/\b\p{L}/gu,c=>c.toUpperCase());
+}
 async function fetchLH(){
   const out=[];
   for(const hunter in SHEET_LH){
@@ -897,7 +905,7 @@ async function fetchLH(){
     const col=n=>hdr.findIndex(h=>h.includes(n));
     const cA=col('area'),cK=col('kelurahan'),cH=col('penawaran'),cL=col('luas'),cLg=col('legalitas'),cM=col('maps'),cD=col('detail singkat'),cN=col('mediator'),cT=col('tanggal'),cNego=col('nego');
     for(let i=hi+1;i<rows.length;i++){
-      const r=rows[i];const area=((cA>=0?r[cA]:'')||'').trim(),kel=((cK>=0?r[cK]:'')||'').trim();
+      const r=rows[i];const area=normArea((cA>=0?r[cA]:'')||''),kel=((cK>=0?r[cK]:'')||'').trim();
       if(!area&&!kel)continue;
       const detail=((cD>=0?r[cD]:'')||'').trim(),dl=detail.toLowerCase();const hargaText=((cH>=0?r[cH]:'')||'').trim();
       let status='Baru';
