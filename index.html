@@ -355,7 +355,7 @@ const TEAMS_JUL = {
   Syahrul:{leader:"Syahrul",members:["Intan","Putu","Anggi","Adi"]},
 };
 const TEAMS_AUG = {
-  Dewa:   {leader:"Dewa",   members:["Warih","Abi","Nisa","Silva"]},
+  Dewa:   {leader:"Dewa",   members:["Warih","Abi","Nisa"]},
   Fadhil: {leader:"Fadhil", members:["Antok","Indri","Sekar","Oca"]},
   Syahrul:{leader:"Syahrul",members:["Intan","Putu","Adi","Jeje"]},
 };
@@ -368,13 +368,20 @@ const NITRO_TEAMS = {
 function teamsForMonth(key){ if(typeof LOADED_CO!=='undefined'&&LOADED_CO==='nitro')return NITRO_TEAMS; return (key==='agu'||key==='sep'||key==='okt'||key==='nov'||key==='des')?TEAMS_AUG:TEAMS_JUL;}
 let TEAMS = TEAMS_JUL;
 /* Registry marketing yang resign — tetap tercatat di report bulan setelah resign (biar nggak hilang). */
-const RESIGNED_REG={Fini:{team:'Fadhil',sejak:'agu'},Anggi:{team:'Syahrul',sejak:'agu'},Anton:{team:'Dewa',sejak:'agu'}};
+const RESIGNED_REG={Fini:{team:'Fadhil',sejak:'agu'},Anggi:{team:'Syahrul',sejak:'agu'},Anton:{team:'Dewa',sejak:'agu'},Silva:{team:'Dewa',sejak:'agu'}};
 const MONTH_ORDER={jul:0,agu:1,sep:2,okt:3,nov:4,des:5,kumulatif:99};
 function resignedFor(teamName){return Object.keys(RESIGNED_REG).filter(n=>RESIGNED_REG[n].team===teamName && (MONTH_ORDER[ACTIVE_MONTH]!=null?MONTH_ORDER[ACTIVE_MONTH]:0)>=MONTH_ORDER[RESIGNED_REG[n].sejak]);}
-/* Staff HRD yang sudah resign — tetap tercatat di report, ditandai "resign", tak dihitung sbg aktif. */
+/* Staff HRD yang sudah resign — tetap tercatat di report, ditandai "resign", tak dihitung sbg aktif.
+   Disamakan sama RESIGNED_REG (Fini/Anggi/Anton resign Agustus 2026, Silva resign 22 Agustus 2026). */
 const RESIGNED_STAFF={
   Dafik:{office:'Madiun',div:'Marketing',jabatan:'Team Leader',masuk:'Desember 2023'},
-  Arma: {office:'Madiun',div:'Back Office',jabatan:'Land Hunter',masuk:'11 Juli 2025'}
+  Arma: {office:'Madiun',div:'Back Office',jabatan:'Land Hunter',masuk:'11 Juli 2025'},
+  Fini: {office:'Jogja',div:'Marketing',jabatan:'Marketing',masuk:''},
+  Anggi:{office:'Jogja',div:'Marketing',jabatan:'Marketing',masuk:'11 Agustus 2025'},
+  /* Anton di roster HRD tercatat sbg "Said" (nama lengkap "Anton Nur Said") — BUKAN "Anto"
+     (itu Antok, orang lain, masih aktif). Jangan pernah disamain lagi. */
+  Said: {office:'Jogja',div:'Marketing',jabatan:'Marketing',masuk:'12 Januari 2026'},
+  Silva:{office:'Jogja',div:'Marketing',jabatan:'Marketing',masuk:'Oktober 2025'}
 };
 let MARKETERS = ["Syahrul","Anggi","Intan","Putu","Ara","Adi","Dewa","Warih","Anton","Nisa","Abi","Silva","Fadhil","Indri","Sekar","Antok","Jeje","Fini","Oca"];
 const MARKETERS_GSR = MARKETERS;
