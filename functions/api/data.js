@@ -34,7 +34,7 @@ export async function onRequest(context) {
     const years = sheets[pic];
     for (const y of Object.keys(years)) {
       const id = years[y];
-      const ranges = MONTHS.map(m => "ranges=" + encodeURIComponent(m + "!A4:X")).join("&");
+      const ranges = MONTHS.map(m => "ranges=" + encodeURIComponent(m + "!A4:Y")).join("&");
       const url = "https://sheets.googleapis.com/v4/spreadsheets/" + id +
         "/values:batchGet?" + ranges +
         "&majorDimension=ROWS&valueRenderOption=FORMATTED_VALUE&key=" + key;
