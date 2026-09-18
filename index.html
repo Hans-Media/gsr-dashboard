@@ -824,8 +824,12 @@ function fillPicDropdown(){
   if(CURRENT!=="__admin__") return;
   var sel=document.getElementById("fPic"); if(!sel) return;
   var cur=F.pic||"";
+  var ARSIP="Arsip Database";
   var names=[...new Set(DB.map(function(d){return d.pic;}))].sort();
-  sel.innerHTML='<option value="">Semua PIC</option>'+names.map(function(m){return "<option"+(m===cur?" selected":"")+">"+m+"</option>";}).join("");
+  var hasArsip=names.indexOf(ARSIP)>-1;
+  names=names.filter(function(m){return m!==ARSIP;});   // Arsip dipin di paling atas
+  var opt=function(m){return "<option value=\""+m+"\""+(m===cur?" selected":"")+">"+m+"</option>";};
+  sel.innerHTML='<option value="">Semua PIC</option>'+(hasArsip?opt(ARSIP):"")+names.map(opt).join("");
 }
 /* Filter "Marketing Asal" — muncul cuma pas lagi buka sheet Arsip Database.
    Isinya nama-nama eks-marketing yang datanya digabung ke Arsip. */
